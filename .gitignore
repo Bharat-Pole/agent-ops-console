@@ -1,0 +1,9 @@
+node_modules
+dist
+dist-ssr
+*.local
+.vite
+node_modules/.tmp
+
+# internal build spec (not published)
+AGENT_OPS_CONSOLE_MASTER_BUILD_SPEC.md
