@@ -169,7 +169,11 @@ export function buildConfig(inp: ConfigInput): AgentConfig {
       chunk_size: rag ? g<number | null>(512) : d<number | null>(null),
       chunk_overlap: rag ? g<number | null>(128) : d<number | null>(null),
       top_k: rag ? g<number | null>(5) : d<number | null>(null),
-      score_threshold: rag ? g<number | null>(inp.score_threshold ?? 0.75) : d<number | null>(null),
+      // 0.35 default (was 0.75 for the old fake hash-based scorer, calibrated
+      // to [0.55,1.0]): real OpenAI text-embedding-3-small cosine similarity on
+      // short snippets runs ~0.6+ for close paraphrases, ~0.1-0.2 for unrelated
+      // text — 0.35 cleanly separates the two (see Phase 3 RAG plan).
+      score_threshold: rag ? g<number | null>(inp.score_threshold ?? 0.35) : d<number | null>(null),
       knowledge_source_refs: inp.knowledge_source_refs?.length ? u(inp.knowledge_source_refs) : d<string[]>([]),
       structured_grounding: s(isAdv),
     },

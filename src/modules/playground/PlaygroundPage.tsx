@@ -5,8 +5,8 @@ import { Card, Button, Badge, TierBadge, EmptyState } from '@/components/primiti
 import { useWorkspace } from '@/kernel/store';
 import { api } from '@/kernel/api';
 import { agentId, isLive } from '@/types';
-import { generatePlaygroundResponse, type PlaygroundResponse } from '@/kernel/playground';
-import { Send, ShieldAlert, Check, X, Bot, User, MessagesSquare, FlaskConical } from 'lucide-react';
+import type { PlaygroundResponse } from '@/kernel/playground';
+import { Send, ShieldAlert, Check, X, Bot, User, MessagesSquare, FlaskConical, Loader2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 interface Turn { role: 'user' | 'agent'; text: string; response?: PlaygroundResponse; approved?: boolean | null }
@@ -15,7 +15,6 @@ export default function PlaygroundPage() {
   const { agentId: paramId } = useParams();
   const navigate = useNavigate();
   const agents = useWorkspace((s) => s.agents);
-  const sources = useWorkspace((s) => s.sources);
   const tools = useWorkspace((s) => s.tools);
 
   const selected = agents.find((a) => agentId(a) === paramId) ?? null;
@@ -23,19 +22,28 @@ export default function PlaygroundPage() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [showInspector, setShowInspector] = useState(true);
+  const [sending, setSending] = useState(false);
 
   const lastResponse = useMemo(() => [...turns].reverse().find((t) => t.role === 'agent')?.response, [turns]);
 
   const canChat = selected && (isLive(selected) || selected.demo_mode);
 
-  const send = () => {
-    if (!selected || !input.trim() || !canChat) return;
+  const send = async () => {
+    if (!selected || !input.trim() || !canChat || sending) return;
     const msg = input.trim();
-    const response = generatePlaygroundResponse(selected, sources, tools, msg);
-    // Critical-path tool calls need a HITL approval before showing the result.
-    const needsHitl = response.toolCalls[0]?.requiresHitl;
-    setTurns((t) => [...t, { role: 'user', text: msg }, { role: 'agent', text: response.text, response, approved: needsHitl ? null : true }]);
+    const id = agentId(selected);
+    const history = turns.map((t) => ({ role: t.role, text: t.text }));
+    setTurns((t) => [...t, { role: 'user', text: msg }]);
     setInput('');
+    setSending(true);
+    try {
+      const response = await api.chatWithAgent(id, msg, history, tools);
+      // Critical-path tool calls need a HITL approval before showing the result.
+      const needsHitl = response.toolCalls[0]?.requiresHitl;
+      setTurns((t) => [...t, { role: 'agent', text: response.text, response, approved: needsHitl ? null : true }]);
+    } finally {
+      setSending(false);
+    }
   };
 
   const decideHitl = (idx: number, approve: boolean) => setTurns((t) => t.map((turn, i) => (i === idx ? { ...turn, approved: approve } : turn)));
@@ -84,7 +92,7 @@ export default function PlaygroundPage() {
               )}
 
               <div className="flex-1 space-y-3 overflow-auto p-3">
-                {turns.length === 0 && <div className="py-8 text-center text-[12px] text-text-low">Try: “Summarize the latest incident” · “Delete all records” · “Use the reader tool”.</div>}
+                {turns.length === 0 && <div className="py-8 text-center text-[12px] text-text-low">Try: &quot;Summarize the latest incident&quot; &middot; &quot;Delete all records&quot; &middot; &quot;Use the reader tool&quot;.</div>}
                 {turns.map((t, i) => (
                   <div key={i} className={cn('flex gap-2', t.role === 'user' && 'flex-row-reverse')}>
                     <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full', t.role === 'user' ? 'bg-raised text-text-mid' : 'bg-accent/15 text-accent')}>{t.role === 'user' ? <User size={13} /> : <Bot size={13} />}</span>
@@ -109,6 +117,12 @@ export default function PlaygroundPage() {
                     </div>
                   </div>
                 ))}
+                {sending && (
+                  <div className="flex gap-2">
+                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent"><Bot size={13} /></span>
+                    <div className="flex items-center gap-1.5 rounded-card bg-raised px-3 py-2 text-[12px] text-text-low"><Loader2 size={12} className="animate-spin-slow" /> Thinking…</div>
+                  </div>
+                )}
               </div>
 
               {!canChat ? (
@@ -120,8 +134,8 @@ export default function PlaygroundPage() {
                 </div>
               ) : (
                 <div className="flex gap-2 border-t border-border p-3">
-                  <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask the agent…" className="flex-1 rounded-control border border-border bg-canvas px-3 py-2 text-[13px] text-text-hi placeholder:text-text-low focus-ring" />
-                  <Button variant="primary" icon={<Send size={14} />} onClick={send}>Send</Button>
+                  <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void send()} placeholder="Ask the agent…" disabled={sending} className="flex-1 rounded-control border border-border bg-canvas px-3 py-2 text-[13px] text-text-hi placeholder:text-text-low focus-ring disabled:opacity-60" />
+                  <Button variant="primary" icon={sending ? <Loader2 size={14} className="animate-spin-slow" /> : <Send size={14} />} onClick={() => void send()} disabled={sending}>{sending ? 'Thinking…' : 'Send'}</Button>
                 </div>
               )}
             </>

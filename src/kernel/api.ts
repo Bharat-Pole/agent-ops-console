@@ -68,11 +68,11 @@ export const api = {
   // ---- Endpoint-shaped services (Section 6). See kernel/services.ts. ----
   synthesize: services.synthesize,
   register: services.register,
+  bootstrapWorkspace: services.bootstrapWorkspace,
   decideApproval: services.decideApproval,
   provision: services.provision,
   runEvaluation: services.runEvaluation,
   triggerPipeline: services.triggerPipeline,
-  finalizeRegistry: services.finalizeRegistry,
   recertify: services.recertify,
   setLifecycle: services.setLifecycle,
   bindTool: services.bindTool,
@@ -80,6 +80,7 @@ export const api = {
   toggleConnectorOffline: services.toggleConnectorOffline,
   proposeConfigChange: services.proposeConfigChange,
   enableDemoMode: services.enableDemoMode,
+  chatWithAgent: services.chatWithAgent,
 
   // Reset demo — re-seeds the kernel from /seed (Section 3.1, acceptance #10).
   reset(): void {

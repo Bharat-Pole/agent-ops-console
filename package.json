@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n client,server -c blue,green \"npm:dev:client\" \"npm:dev:server\"",
+    "dev:client": "vite",
+    "dev:server": "backend/.venv/Scripts/python -m uvicorn app.main:app --app-dir backend --reload --port 8787",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
@@ -24,6 +26,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
+    "concurrently": "^10.0.4",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
     "tsx": "^4.23.1",

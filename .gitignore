@@ -7,3 +7,6 @@ node_modules/.tmp
 
 # internal build spec (not published)
 AGENT_OPS_CONSOLE_MASTER_BUILD_SPEC.md
+
+# server env / secrets
+.env

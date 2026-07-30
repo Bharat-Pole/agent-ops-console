@@ -13,6 +13,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: false,
+    proxy: {
+      '/v1': 'http://localhost:8787',
+    },
   },
   build: {
     rollupOptions: {

@@ -80,7 +80,7 @@ function mkSource(args: {
     source_uri: sp(args.uri),
     parser: sp(args.parser, 'inferred'),
     source_chunking: sp('recursive/512-128', 'inferred'),
-    embedding_model: sp('vertex://text-embedding-004'),
+    embedding_model: sp('openai://text-embedding-3-small'),
     index_target: sp(args.index),
     sensitivity: sens(args.sensitivity, args.confirmed),
     source_approval: prov(args.approval, args.approval === 'approved' ? 'user' : 'inferred', {

@@ -1,9 +1,23 @@
-// Section 11 — deterministic Playground & eval response mechanics. Responses are
-// assembled from the agent's own config; no LLM. "An agent is data" pays off:
-// change top_k or score_threshold via a config-change proposal and the retrieval
-// trace here changes.
+// Section 11 — Playground response mechanics. `refusal`/`tool_call` are still
+// fully deterministic here (no LLM needed, no server round trip). For
+// `grounded_answer`/`general_answer`, real retrieval (Phase 3, server-side
+// cosine similarity over embedded knowledge chunks — see
+// server/services/retrieval.ts) and real prose (Phase 2, Claude — see
+// kernel/services.ts's chatWithAgent) both come from the server; this module
+// only returns a minimal placeholder for those two kinds, used as a fallback
+// if the server is unreachable or has no API key configured.
 
-import type { AgentRecord, KnowledgeSource, ToolAsset } from '@/types';
+import type { AgentRecord, PromptAsset, ToolAsset } from '@/types';
+
+// Resolves a `prompts://<id>@<version>` reference against the prompts store
+// slice; returns the literal string unchanged if it isn't a prompts:// ref
+// (some config fields hold literal text), or null if the ref doesn't resolve.
+export function resolvePromptRef(ref: string | null | undefined, prompts: PromptAsset[]): string | null {
+  if (!ref) return null;
+  if (!ref.startsWith('prompts://')) return ref;
+  const [id, version] = ref.slice('prompts://'.length).split('@');
+  return prompts.find((p) => p.id === id && p.version === version)?.body ?? null;
+}
 
 export type MessageKind = 'refusal' | 'grounded_answer' | 'tool_call' | 'general_answer';
 
@@ -34,39 +48,33 @@ export interface PlaygroundResponse {
 const WRITE_VERBS = ['send', 'approve', 'deploy', 'update', 'create', 'delete', 'close', 'assign', 'notify', 'post', 'execute', 'modify', 'file', 'submit', 'remove', 'email'];
 const ADVISORY_FRAMES = ['draft', 'summarize', 'recommend', 'what', 'how', 'explain', 'show', 'list'];
 
-// Deterministic pseudo-relevance in [0,1] from message + doc id.
-function relevance(message: string, docId: string): number {
-  const s = (message + '|' + docId).toLowerCase();
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  // bias upward a bit so a few chunks clear a 0.75 threshold
-  return 0.55 + ((h >>> 0) % 1000) / 1000 * 0.45;
-}
-
-// 5-char stem so singular/plural (incident/incidents) match.
-function stem(w: string): string {
-  return w.slice(0, 5);
-}
-
-function classify(agent: AgentRecord, message: string, boundToolIds: string[], stems: Set<string>): MessageKind {
+// Decides refusal/grounded/tool_call/general. No longer pre-judges
+// "groundable" by matching message words against KB *content* (that required
+// `sources` data client-side and is what caused the old retrieval-scoring
+// bug — real retrieval now always runs server-side for any question-shaped
+// message when RAG is enabled, regardless of whether it happens to share
+// vocabulary with a snippet). `isQuestion` is purely message-shape, no source
+// data needed — it exists only to keep this ordered ahead of the tool_call
+// check, since a loose tool-name substring match (e.g. "incident_reader" →
+// "incident") would otherwise swallow plain questions like "summarize the
+// latest incident" before they ever reached the grounded-answer path.
+function classify(agent: AgentRecord, message: string, boundToolIds: string[]): MessageKind {
   const t = message.toLowerCase();
-  const words = t.split(/\W+/).filter(Boolean);
   // 1) write-verb (not in an advisory frame) → refusal
   const hasWrite = WRITE_VERBS.some((v) => new RegExp(`\\b${v}\\b`).test(t));
   const advisory = ADVISORY_FRAMES.some((f) => t.includes(f));
   if (hasWrite && !advisory) return 'refusal';
-  // 2) question containing a seeded KB keyword → grounded (needs RAG)
+  // 2) question-shaped + RAG-enabled → attempt a real grounded answer
   const isQuestion = /\?$/.test(message.trim()) || /^(what|how|which|summarize|show|list|when|why|who|give|tell)\b/.test(t);
-  if (agent.config.data.rag_enabled.value && isQuestion && words.some((w) => w.length >= 4 && stems.has(stem(w)))) return 'grounded_answer';
+  if (agent.config.data.rag_enabled.value && isQuestion) return 'grounded_answer';
   // 3) tool-name / action mention → tool_call
   if (boundToolIds.some((id) => t.includes(id.split('_')[0]) || t.includes(id))) return 'tool_call';
-  // 4) else general
-  return 'general_answer';
+  // 4) else general (still attempts a real answer server-side if RAG-enabled)
+  return agent.config.data.rag_enabled.value ? 'grounded_answer' : 'general_answer';
 }
 
 export function generatePlaygroundResponse(
   agent: AgentRecord,
-  sources: KnowledgeSource[],
   tools: ToolAsset[],
   message: string,
 ): PlaygroundResponse {
@@ -76,20 +84,7 @@ export function generatePlaygroundResponse(
   const boundToolIds = cfg.tooling.bound_tools.value.map((t) => t.replace('tools://', '').split('@')[0]);
   const boundTools = tools.filter((t) => boundToolIds.includes(t.id));
 
-  // agent's knowledge sources + a stem set from snippets/domain/source names
-  const agentSources = sources.filter((s) => cfg.data.knowledge_source_refs.value.some((r) => r.includes(s.id)));
-  const stems = new Set<string>();
-  const addStem = (w: string) => { if (w.length >= 4) stems.add(stem(w)); };
-  for (const s of agentSources) {
-    for (const sn of s.snippets) for (const w of sn.text.toLowerCase().split(/\W+/)) addStem(w);
-    for (const w of s.name.toLowerCase().split(/\W+/)) addStem(w);
-  }
-  for (const w of cfg.identity.use_case_category.value.toLowerCase().split(/\W+/)) addStem(w);
-  for (const w of cfg.identity.objective.value.toLowerCase().split(/\W+/)) addStem(w);
-
-  const kind = classify(agent, message, boundToolIds, stems);
-  const threshold = cfg.data.score_threshold.value ?? 0.75;
-  const topK = cfg.data.top_k.value ?? 5;
+  const kind = classify(agent, message, boundToolIds);
   const routing: string[] = isAdv ? ['coordinator'] : [];
 
   if (kind === 'refusal') {
@@ -101,23 +96,14 @@ export function generatePlaygroundResponse(
   }
 
   if (kind === 'grounded_answer') {
-    // score all snippets, filter by threshold, take top_k
-    const scored: RetrievalChunk[] = agentSources.flatMap((s) => s.snippets.map((sn) => {
-      const score = Number(relevance(message, sn.doc_id).toFixed(2));
-      return { doc_id: sn.doc_id, source_id: s.id, text: sn.text, score, passed: score >= threshold };
-    })).sort((a, b) => b.score - a.score);
-    const passed = scored.filter((c) => c.passed).slice(0, topK);
-    const used = passed.slice(0, 3);
-    const citations = used.map((c) => `[source: kb://${c.source_id} · ${c.doc_id}]`);
+    // Placeholder only — real retrieval + citations come back from the
+    // server (see kernel/services.ts's chatWithAgent), which replaces all of
+    // this except as a fallback if that call fails.
     if (isAdv) routing.push('research_assistant', 'synthesizer');
-    const body = used.length
-      ? used.map((c) => c.text).join(' ')
-      : `No source cleared the score_threshold of ${threshold} — abstaining rather than answering ungrounded.`;
     return {
-      kind, citations, retrieval: scored.slice(0, Math.max(topK, 5)), toolCalls: [], routing,
-      tokenCount: 120 + used.length * 60,
-      shapedBy: [`rag_enabled=true`, `retrieval_type=${cfg.data.retrieval_type.value}`, `top_k=${topK}`, `score_threshold=${threshold}`, `citation_rules=${cfg.prompt.citation_rules.value}`],
-      text: used.length ? `${body}\n\n${citations.join('  ')}` : body,
+      kind, citations: [], retrieval: [], toolCalls: [], routing, tokenCount: 80,
+      shapedBy: [`rag_enabled=true`, `retrieval_type=${cfg.data.retrieval_type.value}`, `top_k=${cfg.data.top_k.value ?? 5}`, `score_threshold=${cfg.data.score_threshold.value ?? 0.35}`],
+      text: 'Retrieving relevant context and drafting a grounded answer…',
     };
   }
 

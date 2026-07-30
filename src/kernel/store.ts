@@ -59,6 +59,12 @@ export interface WorkspaceState extends WorkspaceData {
   importWorkspace: (data: Partial<ExportShape>) => void;
   exportWorkspace: () => ExportShape;
   nextId: (prefix: string) => string;
+  // Overwrites the server-owned slices (agents/approvals/auditLog/evalPacks)
+  // with persisted truth from GET /v1/bootstrap. Called once on app load.
+  // Note: "Reset demo" (reset(), below) only resets these client-side — it
+  // does not reset the server's DB, so a hard refresh after a demo reset will
+  // re-hydrate the pre-reset persisted state. Out of scope for this round.
+  hydrateFromServer: (data: { agents: AgentRecord[]; approvals: ApprovalItem[]; auditLog: AuditEvent[]; evalPacks: EvaluationPack[] }) => void;
 
   // ---- ui actions
   setPersona: (p: Persona) => void;
@@ -172,6 +178,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set({ _seq: n + 1 });
     return `${prefix}-${n.toString(36).padStart(4, '0')}`;
   },
+
+  hydrateFromServer: (data) => set({ agents: data.agents, approvals: data.approvals, auditLog: data.auditLog, evalPacks: data.evalPacks }),
 
   // ---- ui -----------------------------------------------------------------
   setPersona: (persona) => set((s) => ({ ui: { ...s.ui, persona } })),
