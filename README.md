@@ -13,16 +13,51 @@ Runtime, Content — are green.**
 ## Stack
 
 Vite · React 18 · TypeScript (strict) · react-router-dom v6 · Zustand · Tailwind
-CSS · Recharts · lucide-react. No other runtime dependencies. **Everything runs
-client-side** — the "backend" is a deterministic in-browser kernel (seeded PRNG,
-fake async job queue, rule/template engine). No real LLM calls, no API keys, **no
-localStorage/sessionStorage/IndexedDB** (persistence is Export/Import Workspace JSON).
+CSS · Recharts · lucide-react on the frontend, plus a FastAPI + asyncpg backend
+backed by Postgres (`pgvector`) for persistence, real Anthropic chat, and
+OpenAI-embeddings RAG retrieval. The original in-browser kernel (seeded PRNG,
+rule/template engine) still drives all the deterministic synthesis/eval logic —
+only storage and the Playground chat/RAG calls go through the real backend.
 
-## Run
+## Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (runs Postgres/pgvector)
+- [Node.js](https://nodejs.org/) 18+
+- [Python](https://www.python.org/downloads/) 3.11+
+
+## Quick start (Windows)
+
+```powershell
+.\start.ps1
+```
+
+This script is idempotent and safe to re-run: it copies `.env.example` → `.env`
+if missing, starts the Postgres container via `docker compose`, waits for it to
+be ready, creates/updates the backend's Python venv (`backend/.venv`), runs
+`npm install`, and finally starts both dev servers. Use `.\start.ps1 -SkipInstall`
+on later runs to skip the venv/npm install steps and just bring services up.
+
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8787
+
+To use real Playground chat / RAG, set `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` in
+`.env` (copied from `.env.example`) — the server boots and the rest of the app
+works fine without them.
+
+## Manual setup (any OS)
 
 ```bash
+cp .env.example .env                 # fill in API keys later if you want real chat/RAG
+docker compose up -d                 # starts Postgres (pgvector) on :5432
+
+cd backend
+python -m venv .venv
+.venv/Scripts/activate                # Windows; use `source .venv/bin/activate` on macOS/Linux
+pip install -r requirements.txt
+cd ..
+
 npm install
-npm run dev       # http://localhost:5173
+npm run dev       # runs client (5173) + server (8787) concurrently
 npm run build     # tsc -b (strict) + vite build
 npm run test      # headless kernel/engine/playground/causality suites
 ```
