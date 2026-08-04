@@ -1,0 +1,30 @@
+/* Section 3.2 — Theme tokens (dark, single theme). Values are verbatim from the spec. */
+:root {
+  --bg-canvas: #0b1220;
+  --bg-surface: #111a2c;
+  --bg-raised: #16213a;
+  --bg-nav: #0a0f1c;
+  --border: #233250;
+  --border-strong: #33476b;
+
+  --text-hi: #e8eef9;
+  --text-mid: #9fb0cc;
+  --text-low: #647291;
+
+  --accent: #3d7eff;
+  --accent-new: #e4572e; /* + New button */
+
+  --ok: #2fbf71;
+  --warn: #e5a50a;
+  --err: #e5484d;
+  --info: #7c5cff;
+
+  --tier-minimal: #8a93a6;
+  --tier-standardized: #3d7eff;
+  --tier-advanced: #7c5cff;
+
+  --risk-low: #2fbf71;
+  --risk-medium: #e5a50a;
+  --risk-high: #f76808;
+  --risk-critical: #e5484d;
+}

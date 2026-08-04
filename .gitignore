@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-ssr
+*.local
+.vite
+node_modules/.tmp
+__pycache__
+*.pyc
+backend/.venv
+
+# internal build spec (not published)
+AGENT_OPS_CONSOLE_MASTER_BUILD_SPEC.md
+
+# server env / secrets
+.env
