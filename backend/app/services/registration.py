@@ -151,6 +151,14 @@ async def finalize_registry(agent_id_str: str) -> Optional[dict[str, Any]]:
     if pending > 0:
         return None
 
+    # Only promote agents still going through initial registration — approving a
+    # later, unrelated pending item (e.g. a knowledge-source bind request on an
+    # already-live agent) must not silently downgrade its lifecycle_status back
+    # to "approved", nor log a misleading "Registry track ready" audit event.
+    agent = await agents_repo.get_by_id(agent_id_str)
+    if agent is None or agent["config"]["lifecycle"]["lifecycle_status"]["value"] not in ("registered", "in_review"):
+        return agent
+
     now = _now_iso()
 
     def updater(a: dict[str, Any]) -> dict[str, Any]:

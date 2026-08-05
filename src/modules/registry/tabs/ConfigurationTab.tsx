@@ -5,7 +5,8 @@ import { Card, Modal, Button, Badge } from '@/components/primitives';
 import { SchemaFieldRow } from '@/components/domain';
 import { api } from '@/kernel/api';
 import { GOVERNANCE_CRITICAL_FIELDS } from '@/types';
-import { ChevronDown, ChevronRight, Info } from 'lucide-react';
+import { ChevronDown, ChevronRight, Info, Plus } from 'lucide-react';
+import { KnowledgeSourcePickerModal } from '../components/KnowledgeSourcePickerModal';
 
 interface Editing { groupKey: string; field: string; value: unknown }
 
@@ -15,6 +16,7 @@ interface Editing { groupKey: string; field: string; value: unknown }
 export function ConfigurationTab({ agent }: { agent: AgentRecord }) {
   const [open, setOpen] = useState<Record<string, boolean>>(() => Object.fromEntries(SCHEMA_GROUPS.map((g, i) => [g.key, i < 3])));
   const [editing, setEditing] = useState<Editing | null>(null);
+  const [attachingSource, setAttachingSource] = useState(false);
   const cfg = agent.config as unknown as Record<string, Record<string, Prov<unknown>>>;
 
   const isEditable = (v: unknown) => v === null || ['string', 'number', 'boolean'].includes(typeof v);
@@ -51,6 +53,13 @@ export function ConfigurationTab({ agent }: { agent: AgentRecord }) {
                 {g.fields.map((f) => (
                   <SchemaFieldRow key={f} field={f} prov={group[f]} onEdit={isEditable(group[f].value) ? () => setEditing({ groupKey: g.key, field: f, value: group[f].value }) : undefined} />
                 ))}
+                {g.key === 'data' && (
+                  <div className="flex justify-end py-1.5">
+                    <Button size="sm" variant="ghost" icon={<Plus size={12} />} onClick={() => setAttachingSource(true)}>
+                      Attach source
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </Card>
@@ -67,6 +76,8 @@ export function ConfigurationTab({ agent }: { agent: AgentRecord }) {
           </div>
         )}
       </Modal>
+
+      <KnowledgeSourcePickerModal agent={agent} open={attachingSource} onClose={() => setAttachingSource(false)} />
     </div>
   );
 }

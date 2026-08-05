@@ -8,7 +8,6 @@ from fastapi.responses import JSONResponse
 
 from app.repositories import agents_repo, audit_repo
 from app.services.claude_service import chat_with_agent, is_claude_configured
-from app.services.retrieval import retrieve_for_agent
 
 router = APIRouter()
 
@@ -63,24 +62,21 @@ async def chat(agent_id: str, body: dict[str, Any]) -> JSONResponse:
         return JSONResponse(status_code=503, content={"message": "ANTHROPIC_API_KEY not configured."})
 
     try:
-        data_cfg = agent["config"]["data"]
-        rag_enabled = data_cfg["rag_enabled"]["value"] and len(data_cfg["knowledge_source_refs"]["value"]) > 0
-        top_k = data_cfg["top_k"]["value"] if data_cfg["top_k"]["value"] is not None else 5
-        score_threshold = data_cfg["score_threshold"]["value"] if data_cfg["score_threshold"]["value"] is not None else 0.35
-
-        retrieval = await retrieve_for_agent(agent, message, top_k, score_threshold) if rag_enabled else []
-        passed = [r for r in retrieval if r["passed"]][:3]
-        citations = [f"[source: kb://{r['source_id']} · {r['doc_id']}]" for r in passed]
-        kind = "grounded_answer" if passed else "general_answer"
-
+        # Retrieval is no longer precomputed here — chat_with_agent() offers the
+        # model a real search_knowledge/query_structured_data tool (built from the
+        # agent's bound knowledge_source_refs) and decides for itself whether to
+        # call it, matching how OpenAI/Azure/Bedrock/Vertex agent platforms expose
+        # knowledge access. `retrieval`/`citations` below are now OUTPUTS of that call.
         result = await chat_with_agent(
             agent,
             message,
             history if isinstance(history, list) else [],
-            [{"doc_id": r["doc_id"], "source_id": r["source_id"], "text": r["text"]} for r in passed],
             resolved_system_prompt_body if isinstance(resolved_system_prompt_body, str) else None,
             resolved_citation_rules_body if isinstance(resolved_citation_rules_body, str) else None,
         )
+        retrieval = result["retrieval"]
+        citations = result["citations"]
+        kind = "grounded_answer" if citations else "general_answer"
 
         audit_event = await audit_repo.insert(
             {

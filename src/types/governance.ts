@@ -52,6 +52,7 @@ export interface ApprovalItem {
   required_by_path: GovernancePath;
   status: ApprovalStatus;
   actor_persona: string | null;
+  target_ref: string | null;
   decided_at: string | null;
   note: string | null;
   requested_at: string;

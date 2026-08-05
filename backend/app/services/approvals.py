@@ -34,6 +34,9 @@ async def decide_approval(
 
     agent = None
     if decision == "approved":
+        if item["step"] == "data_source" and item.get("target_ref"):
+            from app.services.knowledge_binding import finalize_bind_after_approval
+            await finalize_bind_after_approval(item["agent_id"], item["target_ref"])
         agent = await finalize_registry(item["agent_id"])
     if agent is None:
         agent = await agents_repo.get_by_id(item["agent_id"])

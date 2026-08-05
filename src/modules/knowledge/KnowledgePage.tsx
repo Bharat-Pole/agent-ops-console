@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/shell/PageHeader';
 import {
   Tabs, Button, Badge, EmptyState, Drawer, DataTable,
   type TabItem, type Column, type FilterDef,
 } from '@/components/primitives';
 import { useWorkspace } from '@/kernel/store';
+import { agentId } from '@/types';
 import type { RealKnowledgeSource, RealPipelineRun, KnowledgeChunk, KnowledgeConfig } from '@/types';
 import {
   Plus, Database, Loader2, CheckCircle2, XCircle, Clock,
@@ -78,7 +79,7 @@ function StatusBadge({ status }: { status: RealKnowledgeSource['status'] }) {
   );
 }
 
-function SensitivityBadge({ s }: { s: string }) {
+export function SensitivityBadge({ s }: { s: string }) {
   const tone =
     s === 'restricted' ? 'err' :
     s === 'confidential' ? 'warn' :
@@ -125,6 +126,9 @@ function SourceDrawer({
   const [showChunks, setShowChunks] = useState(false);
   const [loadingChunks, setLoadingChunks] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const navigate = useNavigate();
+  const agents = useWorkspace((s) => s.agents);
+  const approvals = useWorkspace((s) => s.approvals);
 
   useEffect(() => {
     if (!source) { setChunks([]); setRuns([]); setShowChunks(false); setConfirmDelete(false); return; }
@@ -188,6 +192,32 @@ function SourceDrawer({
               <span className="text-[11px]">{source.error_msg}</span>
             </div>
           )}
+        </div>
+
+        {/* Bound agents — the blueprint's "Source usage map", mirrors ToolsPage's used_by rendering */}
+        <div>
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-low">Bound Agents</div>
+          {source.used_by.length ? (
+            <div className="space-y-0.5">
+              {source.used_by.map((aid) => {
+                const a = agents.find((x) => agentId(x) === aid);
+                return (
+                  <button key={aid} onClick={() => navigate(`/agents/${aid}`)} className="block text-left text-[12px] text-accent hover:underline">
+                    {a?.config.identity.agent_name.value ?? aid}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <span className="text-[12px] text-text-low">Not bound to any agent.</span>
+          )}
+          {approvals
+            .filter((ap) => ap.step === 'data_source' && ap.status === 'pending' && ap.target_ref === `kb://${source.id}`)
+            .map((ap) => (
+              <div key={ap.id} className="mt-1.5 flex items-center gap-1.5 rounded-md bg-warn/10 px-2 py-1 text-[11px] text-warn">
+                <Clock size={11} /> Pending approval to bind to {agents.find((x) => agentId(x) === ap.agent_id)?.config.identity.agent_name.value ?? ap.agent_id}
+              </div>
+            ))}
         </div>
 
         {/* Active pipeline run */}

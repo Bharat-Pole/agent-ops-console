@@ -76,6 +76,7 @@ export const api = {
   recertify: services.recertify,
   setLifecycle: services.setLifecycle,
   bindTool: services.bindTool,
+  bindKnowledgeSource: services.bindKnowledgeSource,
   healthcheck: services.healthcheck,
   toggleConnectorOffline: services.toggleConnectorOffline,
   proposeConfigChange: services.proposeConfigChange,

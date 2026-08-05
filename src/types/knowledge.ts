@@ -32,6 +32,7 @@ export interface RealKnowledgeSource {
   chunk_overlap: number;
   connector_config_masked: string | null;
   embedding_provider: EmbeddingProvider;
+  used_by: string[];
   has_raw_text: boolean;
   created_at: string;
   updated_at: string;

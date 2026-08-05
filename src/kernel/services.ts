@@ -304,6 +304,35 @@ export const services = {
     return true;
   },
 
+  // Sensitivity-gated bind guard — mirrors bindTool above, but a confidential/
+  // restricted source doesn't hard-reject: it creates a pending risk-officer
+  // approval instead, resolved server-side by the same approvals queue used
+  // for critical config-field changes.
+  async bindKnowledgeSource(agentIdStr: string, sourceId: string): Promise<boolean> {
+    const store = ws();
+    const { ok, data } = await postJson<{
+      ok: boolean;
+      pending?: boolean;
+      agent?: AgentRecord;
+      source?: import('@/types').RealKnowledgeSource;
+      approval?: import('@/types').ApprovalItem;
+      auditEvent?: import('@/types').AuditEvent;
+      message?: string;
+    }>(`/v1/agents/${encodeURIComponent(agentIdStr)}/knowledge/bind`, { sourceId });
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — bind failed.'); return false; }
+    if (data.auditEvent) store.addAuditEvent(data.auditEvent);
+    if (data.pending) {
+      if (data.approval) store.addApproval(data.approval);
+      store.pushToast('warn', data.message ?? 'Pending risk-officer approval.');
+      return false;
+    }
+    if (!data.ok) { store.pushToast('err', data.message ?? `${sourceId} cannot be bound.`); return false; }
+    if (data.agent) store.patchAgent(agentIdStr, () => data.agent!);
+    if (data.source) store.upsertRealSource(data.source);
+    store.pushToast('ok', `${data.source?.name ?? sourceId} bound.`);
+    return true;
+  },
+
   // POST /v1/agents/:id/chat — Phase 2. The deterministic parts (kind,
   // retrieval, citations, toolCalls, routing, shapedBy, canned text for
   // refusal/tool_call) are computed locally via generatePlaygroundResponse

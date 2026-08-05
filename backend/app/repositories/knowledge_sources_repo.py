@@ -7,7 +7,7 @@ _COLS_NO_BLOB = (
     "id, name, source_type, mime_type, uri, status, sensitivity, ingestion_mode, "
     "chunk_count, size_bytes, error_msg, domain, owner, tags, valid_until, lifecycle, "
     "last_queried_at, chunk_size, chunk_overlap, connector_config_masked, embedding_provider, "
-    "created_at, updated_at, "
+    "used_by_json, created_at, updated_at, "
     "CASE WHEN raw_text IS NOT NULL THEN TRUE ELSE FALSE END AS has_raw_text"
 )
 
@@ -39,6 +39,7 @@ def _row_to_source(row: Any) -> dict[str, Any]:
         "chunk_overlap": row["chunk_overlap"],
         "connector_config_masked": row["connector_config_masked"],
         "embedding_provider": row.get("embedding_provider", "openai"),
+        "used_by": row["used_by_json"] or [],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "has_raw_text": row["has_raw_text"],
@@ -151,6 +152,11 @@ async def update_chunk_settings(id_: str, chunk_size: int, chunk_overlap: int) -
         "UPDATE knowledge_sources SET chunk_size=$2, chunk_overlap=$3, updated_at=$4 WHERE id=$1",
         id_, chunk_size, chunk_overlap, _now_iso(),
     )
+
+
+async def mark_used_by(id_: str, used_by: list[str]) -> None:
+    pool = get_pool()
+    await pool.execute("UPDATE knowledge_sources SET used_by_json = $2 WHERE id = $1", id_, used_by)
 
 
 async def set_lifecycle(id_: str, lifecycle: str) -> None:

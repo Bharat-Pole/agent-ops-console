@@ -143,10 +143,16 @@ ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS last_queried_at TEXT;
 ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS chunk_size INT NOT NULL DEFAULT 800;
 ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS chunk_overlap INT NOT NULL DEFAULT 100;
 ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS connector_config_masked TEXT;
+ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS used_by_json JSONB NOT NULL DEFAULT '[]';
 
 CREATE INDEX IF NOT EXISTS idx_ks_status ON knowledge_sources(status);
 CREATE INDEX IF NOT EXISTS idx_ks_created ON knowledge_sources(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ks_lifecycle ON knowledge_sources(lifecycle);
+
+-- Carries which binding a pending approval is about (e.g. 'kb://<source_id>'),
+-- since approvals_repo.patch() overwrites `note` with the officer's own decision text.
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS target_ref TEXT;
+CREATE INDEX IF NOT EXISTS idx_approvals_target ON approvals(target_ref) WHERE target_ref IS NOT NULL;
 
 -- ── Pipeline Runs ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS pipeline_runs (

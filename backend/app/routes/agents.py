@@ -8,6 +8,7 @@ from app.repositories import agents_repo
 from app.services.lifecycle import enable_demo_mode, propose_config_change, recertify, set_lifecycle
 from app.services.registration import register_agent
 from app.services.tool_binding import bind_tool
+from app.services.knowledge_binding import bind_knowledge_source
 
 router = APIRouter()
 
@@ -73,3 +74,9 @@ async def config_change(agent_id: str, body: dict[str, Any]) -> JSONResponse:
 async def bind_tool_route(agent_id: str, body: dict[str, Any]) -> JSONResponse:
     result = await bind_tool(agent_id, body.get("toolId"))
     return JSONResponse(status_code=200 if result.get("ok") else 400, content=result)
+
+
+@router.post("/v1/agents/{agent_id}/knowledge/bind")
+async def bind_knowledge_route(agent_id: str, body: dict[str, Any]) -> JSONResponse:
+    result = await bind_knowledge_source(agent_id, body.get("sourceId"))
+    return JSONResponse(status_code=200 if result.get("ok") or result.get("pending") else 400, content=result)
