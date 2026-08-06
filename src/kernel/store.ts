@@ -59,6 +59,12 @@ export interface WorkspaceState extends WorkspaceData {
   importWorkspace: (data: Partial<ExportShape>) => void;
   exportWorkspace: () => ExportShape;
   nextId: (prefix: string) => string;
+  // Overwrites the server-owned slices (agents/approvals/auditLog/evalPacks)
+  // with persisted truth from GET /v1/bootstrap. Called once on app load.
+  // Note: "Reset demo" (reset(), below) only resets these client-side — it
+  // does not reset the server's DB, so a hard refresh after a demo reset will
+  // re-hydrate the pre-reset persisted state. Out of scope for this round.
+  hydrateFromServer: (data: { agents: AgentRecord[]; approvals: ApprovalItem[]; auditLog: AuditEvent[]; evalPacks: EvaluationPack[]; tools?: ToolAsset[]; connectors?: McpConnector[] }) => void;
 
   // ---- ui actions
   setPersona: (p: Persona) => void;
@@ -86,8 +92,10 @@ export interface WorkspaceState extends WorkspaceData {
   addPipelineRun: (run: PipelineRun) => void;
   patchPipelineRun: (id: string, updater: (r: PipelineRun) => PipelineRun) => void;
 
+  addConnector: (c: McpConnector) => void;
   patchConnector: (id: string, patch: Partial<McpConnector>) => void;
   upsertPrompt: (p: PromptAsset) => void;
+  addTool: (tool: ToolAsset) => void;
   patchTool: (id: string, patch: Partial<ToolAsset>) => void;
   setTelemetry: (t: AgentTelemetry[]) => void;
 
@@ -173,6 +181,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     return `${prefix}-${n.toString(36).padStart(4, '0')}`;
   },
 
+  hydrateFromServer: (data) =>
+    set((s) => ({
+      agents: data.agents,
+      approvals: data.approvals,
+      auditLog: data.auditLog,
+      evalPacks: data.evalPacks,
+      tools: data.tools ?? s.tools,
+      connectors: data.connectors ?? s.connectors,
+    })),
+
   // ---- ui -----------------------------------------------------------------
   setPersona: (persona) => set((s) => ({ ui: { ...s.ui, persona } })),
   toggleNav: () => set((s) => ({ ui: { ...s.ui, navCollapsed: !s.ui.navCollapsed } })),
@@ -227,6 +245,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   patchPipelineRun: (id, updater) =>
     set((s) => ({ pipelineRuns: s.pipelineRuns.map((r) => (r.id === id ? updater(r) : r)) })),
 
+  addConnector: (c) => set((s) => ({ connectors: [...s.connectors, c] })),
   patchConnector: (id, patch) =>
     set((s) => ({ connectors: s.connectors.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
   upsertPrompt: (p) =>
@@ -238,6 +257,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
           : [...s.prompts, p],
       };
     }),
+  addTool: (tool) => set((s) => ({ tools: [...s.tools, tool] })),
   patchTool: (id, patch) =>
     set((s) => ({ tools: s.tools.map((t) => (t.id === id ? { ...t, ...patch } : t)) })),
   setTelemetry: (t) => set({ telemetry: t }),

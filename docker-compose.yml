@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: agent_ops
+    ports:
+      # Mapped off the default 5432 — a native Windows PostgreSQL service
+      # (postgresql-x64-18) already owns that port on this machine and was
+      # silently shadowing this container, causing the backend to connect to
+      # the wrong database with the wrong credentials.
+      - '5434:5432'
+    volumes:
+      - agent_ops_pgdata:/var/lib/postgresql/data
+
+volumes:
+  agent_ops_pgdata:

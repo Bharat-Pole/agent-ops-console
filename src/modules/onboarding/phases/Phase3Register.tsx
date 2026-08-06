@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Card, Button, Badge } from '@/components/primitives';
 import { ReviewCard } from '@/components/domain';
 import type { PhaseProps } from '../WizardPage';
@@ -5,12 +6,13 @@ import { useWorkspace } from '@/kernel/store';
 import { api } from '@/kernel/api';
 import { synthesize, applyTierOverride } from '@/kernel/engine';
 import type { CapabilityTier } from '@/types';
-import { CheckCircle2, ArrowRight, ArrowLeft, ClipboardCheck } from 'lucide-react';
+import { CheckCircle2, ArrowRight, ArrowLeft, ClipboardCheck, Loader2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 export function Phase3Register({ draft, patch, goPhase }: PhaseProps) {
   const pushToast = useWorkspace((s) => s.pushToast);
   const registeredAgent = useWorkspace((s) => s.agents.find((a) => a.config.identity.agent_id.value === draft.agent_id));
+  const [registering, setRegistering] = useState(false);
 
   if (!draft.synthesis) {
     return <Card><div className="text-[13px] text-text-mid">Generate a proposal in Phase 1 first.</div><Button className="mt-3" variant="ghost" onClick={() => goPhase(1)}>← Back to Phase 1</Button></Card>;
@@ -36,8 +38,10 @@ export function Phase3Register({ draft, patch, goPhase }: PhaseProps) {
     else pushToast('warn', res.note);
   };
 
-  const register = () => {
-    const id = api.register(draft.id);
+  const register = async () => {
+    setRegistering(true);
+    const id = await api.register(draft.id);
+    setRegistering(false);
     if (id) goPhase(4);
   };
 
@@ -96,8 +100,10 @@ export function Phase3Register({ draft, patch, goPhase }: PhaseProps) {
             {questions.length > 0 && ` ${answered}/${questions.length} clarification(s) answered (optional).`}
           </p>
           <div className="flex gap-2">
-            <Button variant="ghost" icon={<ArrowLeft size={14} />} onClick={() => goPhase(2)}>Back</Button>
-            <Button variant="primary" icon={<CheckCircle2 size={14} />} onClick={register}>Register agent</Button>
+            <Button variant="ghost" icon={<ArrowLeft size={14} />} onClick={() => goPhase(2)} disabled={registering}>Back</Button>
+            <Button variant="primary" icon={registering ? <Loader2 size={14} className="animate-spin-slow" /> : <CheckCircle2 size={14} />} onClick={register} disabled={registering}>
+              {registering ? 'Registering…' : 'Register agent'}
+            </Button>
           </div>
         </Card>
       </div>

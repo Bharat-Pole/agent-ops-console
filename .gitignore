@@ -4,6 +4,23 @@ dist-ssr
 *.local
 .vite
 node_modules/.tmp
+__pycache__
+*.pyc
+backend/.venv
 
 # internal build spec (not published)
 AGENT_OPS_CONSOLE_MASTER_BUILD_SPEC.md
+ROADMAP.md
+MCP_WORKSTREAM.md
+CLAUDE.md
+CONCERNS.md
+
+
+# server env / secrets
+.env
+
+# client commercial documents — NEVER commit these, the repo is public
+*.docx
+*.pptx
+*.pdf
+*.xlsx

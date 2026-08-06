@@ -3,8 +3,10 @@ import { usePreflight, PreflightList } from '../PreFlight';
 import type { PhaseProps } from '../WizardPage';
 import { Lock, ArrowRight } from 'lucide-react';
 
-export function PreFlightPhase({ goPhase }: PhaseProps) {
-  const { checks, hardBlocked } = usePreflight();
+export function PreFlightPhase({ draft, goPhase }: PhaseProps) {
+  // Scoped once tools are known (i.e. after a pass through Phase 1); a fresh
+  // draft has none, so this falls back to platform-wide readiness.
+  const { checks, hardBlocked } = usePreflight(draft.intent.tools ?? []);
   return (
     <Card>
       {/* Verbatim Blueprint heading (acceptance #5) */}
@@ -12,6 +14,7 @@ export function PreFlightPhase({ goPhase }: PhaseProps) {
       <p className="mb-3 text-[12px] text-text-low">
         All 🔴 hard blockers must be green before Phase 1. 🟡 soft blockers may proceed as “pending”. Hard-blocker
         state derives from live kernel state — toggle a connector offline in Tools &amp; MCP and check #4 turns red.
+        Once this draft has tools, check #4 narrows to just the connectors those tools resolve to.
       </p>
       <PreflightList checks={checks} />
       <div className="mt-4 flex items-center gap-3">

@@ -22,6 +22,10 @@ function appr(
     decided_at: status === 'pending' ? null : isoTs(daysFromToday(-(decidedDaysAgo ?? requestedDaysAgo)), 13),
     note: note ?? (status === 'approved' ? 'Approved — schema valid, advisory scope confirmed.' : status === 'rejected' ? 'Rejected.' : null),
     requested_at: isoTs(daysFromToday(-requestedDaysAgo), 9),
+    // Every seeded item is an agent approval — the queue only became shared in
+    // Phase 3.2, and the migration backfills existing rows the same way.
+    entity_type: 'agent',
+    entity_id: agent_id,
   };
 }
 

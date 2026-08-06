@@ -68,18 +68,30 @@ export const api = {
   // ---- Endpoint-shaped services (Section 6). See kernel/services.ts. ----
   synthesize: services.synthesize,
   register: services.register,
+  bootstrapWorkspace: services.bootstrapWorkspace,
   decideApproval: services.decideApproval,
   provision: services.provision,
   runEvaluation: services.runEvaluation,
   triggerPipeline: services.triggerPipeline,
-  finalizeRegistry: services.finalizeRegistry,
   recertify: services.recertify,
   setLifecycle: services.setLifecycle,
   bindTool: services.bindTool,
+  createTool: services.createTool,
+  updateToolPolicy: services.updateToolPolicy, // owner + risk_level (Phase 3.3)
+  suggestTool: services.suggestTool,
   healthcheck: services.healthcheck,
+  createConnector: services.createConnector, // register an MCP server
+  updateConnector: services.updateConnector,
   toggleConnectorOffline: services.toggleConnectorOffline,
+  listConnectorTools: services.listConnectorTools, // MCP tools/list
+  listConnectorBacklog: services.listConnectorBacklog, // slide 21 element 7
+  updateBacklogItem: services.updateBacklogItem,
+  listAgentConnectors: services.listAgentConnectors, // agent → MCP dependency set
+  recordToolCall: services.recordToolCall, // slide 21 element 6 — tool-call audit trail
+  listToolCalls: services.listToolCalls,
   proposeConfigChange: services.proposeConfigChange,
   enableDemoMode: services.enableDemoMode,
+  chatWithAgent: services.chatWithAgent,
 
   // Reset demo — re-seeds the kernel from /seed (Section 3.1, acceptance #10).
   reset(): void {

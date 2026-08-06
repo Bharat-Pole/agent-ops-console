@@ -1,6 +1,7 @@
 import { Card, Button } from '@/components/primitives';
 import { ReviewCard, EngineTrace } from '@/components/domain';
 import { TagInput } from '../TagInput';
+import { ToolPicker } from '../ToolPicker';
 import type { PhaseProps } from '../WizardPage';
 import { useWorkspace } from '@/kernel/store';
 import { api } from '@/kernel/api';
@@ -58,7 +59,8 @@ export function Phase1Intent({ draft, patch, goPhase }: PhaseProps) {
           </div>
           <div>
             <Label>Tools</Label>
-            <TagInput value={intent.tools ?? []} onChange={(v) => setIntent({ tools: v })} placeholder="add a tool, Enter…" />
+            {/* Catalog-backed: each tool shows the MCP connector it will pull in. */}
+            <ToolPicker value={intent.tools ?? []} onChange={(v) => setIntent({ tools: v })} placeholder="search the tool catalog…" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>

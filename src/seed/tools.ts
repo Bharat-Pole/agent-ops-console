@@ -1,10 +1,15 @@
 import type { ToolAsset } from '@/types';
 import { AGENT } from './ids';
 
+// Phase 3 added three fields to ToolAsset. They are applied once, below, rather
+// than repeated across all twelve entries — the value is the same for every
+// seeded tool and the reason is a single fact about the seed, not twelve.
+type SeedTool = Omit<ToolAsset, 'approval_state' | 'owner' | 'risk_level'>;
+
 // Section 12.2 — Tools (12). Nine read-only + three write-capable.
 // write_capable:true tools are catalogued for visibility but can NEVER be bound
 // (Section 7.6 / acceptance #3). They render with a red "WRITE — advisory-block" badge.
-export const SEED_TOOLS: ToolAsset[] = [
+const SEED_TOOLS_RAW: SeedTool[] = [
   {
     id: 'incident_reader',
     version: 'v1',
@@ -175,3 +180,19 @@ export const SEED_TOOLS: ToolAsset[] = [
     used_by: [],
   },
 ];
+
+// Phase 3.2 — the seeded catalog is the platform's *pre-vetted* set, so it is
+// grandfathered `approved` rather than retro-queued; the same grandfathering
+// the `approval_state` column default performs server-side. Only tools created
+// through the console from here on start `pending`.
+//
+// Phase 3.3 — `owner`/`risk_level` are deliberately unset. A seeded tool has no
+// real owner, and inventing one would fabricate accountability in the exact
+// screen a Governance Officer uses to find gaps. They render as "unassigned"
+// and are filled in through PATCH /v1/tools/:id.
+export const SEED_TOOLS: ToolAsset[] = SEED_TOOLS_RAW.map((t) => ({
+  ...t,
+  approval_state: 'approved',
+  owner: null,
+  risk_level: null,
+}));

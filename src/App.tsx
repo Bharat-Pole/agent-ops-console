@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from '@/components/shell/AppShell';
+import { api } from '@/kernel/api';
 
 import HomePage from '@/modules/home/HomePage';
 import RegistryPage from '@/modules/registry/RegistryPage';
@@ -22,6 +24,13 @@ import NotFound from '@/modules/NotFound';
 // first-class (acceptance #12): BrowserRouter + Vite SPA fallback means every
 // route survives a hard refresh.
 export default function App() {
+  // Hydrate agents/approvals/audit log/eval packs with server-persisted truth
+  // once on load. The client keeps its local seed data until this resolves —
+  // no loading gate needed (see kernel/store.ts hydrateFromServer).
+  useEffect(() => {
+    void api.bootstrapWorkspace();
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

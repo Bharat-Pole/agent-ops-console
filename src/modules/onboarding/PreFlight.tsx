@@ -16,19 +16,41 @@ export interface PreflightCheck {
   state: CheckState;
 }
 
-export function usePreflight(): { checks: PreflightCheck[]; hardBlocked: boolean } {
+// Pre-Flight is the *deploy-time* gate for connector health — the one place an
+// unhealthy MCP server blocks rather than warns (binding only warns; see
+// backend services/tool_binding.py).
+//
+// `toolIds` scopes check #4 to the connectors those tools actually resolve to,
+// so a down CRM connector no longer blocks an agent that only reads Confluence.
+// Omitted or empty (the landing page, and a fresh draft at phase `pre` — both
+// run *before* any tool is chosen) it falls back to platform-wide readiness,
+// which is the honest answer when there is no agent to scope to yet.
+export function usePreflight(toolIds?: string[]): { checks: PreflightCheck[]; hardBlocked: boolean } {
   const connectors = useWorkspace((s) => s.connectors);
   const sources = useWorkspace((s) => s.sources);
+  const tools = useWorkspace((s) => s.tools);
 
-  const anyOffline = connectors.some((c) => c.status === 'offline');
+  const scoped = (toolIds?.length ?? 0) > 0;
+  // The tool→connector edge is a fixed FK on the tool row — a lookup, never a
+  // choice. Local tools (connector_id === null) need no MCP server at all.
+  const needed = scoped
+    ? new Set(toolIds!.map((id) => tools.find((t) => t.id === id)?.connector_id).filter((c): c is string => !!c))
+    : null;
+  const offline = connectors.filter((c) => c.status === 'offline' && (!needed || needed.has(c.id)));
   const allSourcesApproved = sources.every((s) => s.source_approval.value === 'approved');
+
+  const mcpLabel = offline.length
+    ? `MCP connectors available — ${offline.map((c) => c.name).join(', ')} offline`
+    : scoped && needed!.size === 0
+      ? 'MCP connectors available — none required (all tools local)'
+      : 'MCP connectors available';
 
   const checks: PreflightCheck[] = [
     // ---- hard 🔴 (all must be green) ----
     { id: 'gcp', label: 'GCP project access', hard: true, state: 'ok' },
     { id: 'sources_reachable', label: 'Data sources reachable', hard: true, state: 'ok' },
     { id: 'secrets', label: 'Credentials in Secret Manager', hard: true, state: 'ok' },
-    { id: 'mcp', label: 'MCP connectors available', hard: true, state: anyOffline ? 'fail' : 'ok' },
+    { id: 'mcp', label: mcpLabel, hard: true, state: offline.length ? 'fail' : 'ok' },
     { id: 'runtime', label: 'Runtime host & model gateway', hard: true, state: 'ok' },
     { id: 'vector', label: 'Vector store provisioned', hard: true, state: 'ok' },
     { id: 'model_endpoint', label: 'Model endpoint approved', hard: true, state: 'ok' },

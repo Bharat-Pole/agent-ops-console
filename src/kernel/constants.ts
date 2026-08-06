@@ -55,6 +55,50 @@ export const PATH_DEFS: Record<GovernancePath, PathDefinition> = {
 // Deep-path promotion requires eval score ≥ this (Section 8.2 / 11.3).
 export const DEEP_EVAL_PASS_SCORE = 90;
 
+// ---- Tool Permission Matrix — deck slide 25 --------------------------------
+// `permission`, `description` and `treatment_text` are **verbatim from deck
+// slide 25** ("Detailed Tool Permission Matrix"), read from the source .pptx on
+// 2026-08-05. Slide 25 is a named Day-90 artifact, so this view quotes it
+// rather than paraphrasing — an earlier version paraphrased, which meant the
+// console and the deck could drift without anyone noticing. **If you edit these
+// strings, you are editing a client-facing commitment: change the deck first.**
+//
+// Note the deck is not internally consistent about the vocabulary, and slide 25
+// is the one to follow:
+//   · slide 21 says "read, retrieve, summarize, draft, recommend, write-blocked"
+//   · the SOW says "summarize, draft, recommend, classify, validate"
+//   · slide 25 — the *Detailed* matrix — gives the nine below, and the locked
+//     `ToolPermission` enum matches its five allowed values exactly.
+// `retrieve` and `classify` therefore have no home in the model. That is a
+// question for the product owner, not a reason to widen the enum (ROADMAP D1).
+//
+// This constant is presentation, never enforcement — nothing reads it to make a
+// decision. The asymmetry in `implementation` is the point of the view: the code
+// is STRONGER than the deck describes for the allowed rows (an invalid
+// permission is a type error, not a policy violation) and COARSER for the
+// blocked ones (all four collapse into one `write_capable` boolean — the model
+// records *that* a tool writes, never *which* verb).
+export interface PermissionMatrixRow {
+  permission: string;
+  treatment: 'allowed' | 'blocked'; // machine-readable, for styling only
+  treatment_text: string;           // slide 25's own words
+  description: string;              // slide 25's own words
+  implementation: string;           // ours — how the deck's row maps onto code
+}
+
+export const PERMISSION_MATRIX: PermissionMatrixRow[] = [
+  // Note "Allowed with approved access" — slide 25 qualifies Read and nothing else.
+  { permission: 'Read', treatment: 'allowed', treatment_text: 'Allowed with approved access', description: 'Retrieve approved context from a system', implementation: 'ToolPermission member — a valid permission_ceiling.' },
+  { permission: 'Summarize', treatment: 'allowed', treatment_text: 'Allowed', description: 'Summarize approved context', implementation: 'ToolPermission member — a valid permission_ceiling.' },
+  { permission: 'Draft', treatment: 'allowed', treatment_text: 'Allowed', description: 'Draft content for human review', implementation: 'ToolPermission member — a valid permission_ceiling.' },
+  { permission: 'Recommend', treatment: 'allowed', treatment_text: 'Allowed', description: 'Recommend next steps or options', implementation: 'ToolPermission member — a valid permission_ceiling.' },
+  { permission: 'Validate', treatment: 'allowed', treatment_text: 'Allowed', description: 'Check completeness, consistency, or quality', implementation: 'ToolPermission member — a valid permission_ceiling.' },
+  { permission: 'Create', treatment: 'blocked', treatment_text: 'Not allowed in base scope', description: 'Create records/tickets/code changes', implementation: 'write_capable = true → bind_tool() rejects, server-side.' },
+  { permission: 'Update', treatment: 'blocked', treatment_text: 'Not allowed in base scope', description: 'Modify records, code, workflows, or systems', implementation: 'write_capable = true → bind_tool() rejects, server-side.' },
+  { permission: 'Approve', treatment: 'blocked', treatment_text: 'Not allowed in base scope', description: 'Approve change/release/workflow decisions', implementation: 'write_capable = true → bind_tool() rejects, server-side.' },
+  { permission: 'Deploy', treatment: 'blocked', treatment_text: 'Not allowed in base scope', description: 'Trigger deployment or production action', implementation: 'write_capable = true → bind_tool() rejects, server-side.' },
+];
+
 // ---- Tier plain-language names (Section 1.4) ------------------------------
 export const TIER_LABEL: Record<CapabilityTier, string> = {
   minimal: 'Simple Advisor',

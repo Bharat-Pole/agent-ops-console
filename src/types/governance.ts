@@ -41,20 +41,33 @@ export type ApprovalStep =
   | 'business_owner'
   | 'risk_officer'
   | 'security_committee'
-  | 'data_source';
+  | 'data_source'
+  // Phase 3.2 — the queue is shared across entity kinds (Blueprint §11), and
+  // none of the four agent governance roles above describes cataloguing a tool.
+  | 'tool_registration';
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
+// What an approval item is *about*. Everything before Phase 3.2 was an agent,
+// and pre-existing rows are backfilled to 'agent' by the migration.
+export type ApprovalEntityType = 'agent' | 'tool';
+
 export interface ApprovalItem {
   id: string;
-  agent_id: string;
+  // NULL for a non-agent item — a tool belongs to no agent. Use `entity_id`
+  // for the subject; `agent_id` remains for the agent-specific machinery
+  // (finalize_registry, the per-agent pending count).
+  agent_id: string | null;
   step: ApprovalStep;
-  required_by_path: GovernancePath;
+  // NULL for a non-agent item — a governance path is an agent concept.
+  required_by_path: GovernancePath | null;
   status: ApprovalStatus;
   actor_persona: string | null;
   decided_at: string | null;
   note: string | null;
   requested_at: string;
+  entity_type: ApprovalEntityType;
+  entity_id: string;
 }
 
 // ---- Audit log (append-only) ---------------------------------------------

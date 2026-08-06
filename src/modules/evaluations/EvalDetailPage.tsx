@@ -32,9 +32,9 @@ export default function EvalDetailPage() {
   const score = pack.last_run?.score ?? null;
   const thresholdBroken = agent && (agent.config.data.score_threshold.value ?? 0) > 0.9 && pack.cases.some((c) => c.category === 'grounding' && c.last_result === 'fail');
 
-  const fixThreshold = () => {
+  const fixThreshold = async () => {
     if (!agent) return;
-    api.proposeConfigChange(agentId(agent), 'data', 'score_threshold', 0.75);
+    await api.proposeConfigChange(agentId(agent), 'data', 'score_threshold', 0.35);
     api.runEvaluation(pack.id);
   };
 
@@ -61,7 +61,7 @@ export default function EvalDetailPage() {
               <div className="font-medium text-text-hi">Two grounding cases fail — score_threshold is {agent!.config.data.score_threshold.value} (too strict)</div>
               <div className="text-text-low">Deep-path promotion is locked below {DEEP_EVAL_PASS_SCORE}. Fix the threshold and re-run.</div>
             </div>
-            <Button variant="primary" size="sm" icon={<Wrench size={13} />} onClick={fixThreshold}>Fix score_threshold → 0.75 & re-run</Button>
+            <Button variant="primary" size="sm" icon={<Wrench size={13} />} onClick={() => void fixThreshold()}>Fix score_threshold → 0.35 & re-run</Button>
           </div>
         </Card>
       )}

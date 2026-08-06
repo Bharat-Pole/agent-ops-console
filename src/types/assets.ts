@@ -26,7 +26,18 @@ export interface PromptAsset {
 }
 
 // ---- Tool Catalog ---------------------------------------------------------
+// `status` is OPERATIONAL health, derived server-side from the connector that
+// serves the tool. It is not, and must not become, a governance state.
 export type ToolStatus = 'available' | 'degraded' | 'offline';
+
+// ...which is why consent is a separate axis (Phase 3.2, Blueprint §11). A tool
+// can be `available` and `pending`: reachable, but not yet allowed.
+export type ToolApprovalState = 'pending' | 'approved' | 'rejected';
+
+// Blueprint §3.4. Same four values as the agent RiskTier on purpose — one risk
+// vocabulary per platform. `null` = unclassified, a real gap rather than a
+// fabricated default.
+export type ToolRiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
 export interface ToolSchema {
   inputs: Record<string, string>;
@@ -44,9 +55,48 @@ export interface ToolAsset {
   connector_id: string | null;
   schema: ToolSchema;
   status: ToolStatus;
+  approval_state: ToolApprovalState; // only `approved` binds (Phase 3.2)
+  owner: string | null;
+  risk_level: ToolRiskLevel | null;
   used_by: string[]; // agent_id[]
   // Canned fixtures the Playground uses to render a simulated tool result.
   result_fixtures?: string[];
+}
+
+// ---- Connector prioritization backlog (deck slide 21, element 7) ----------
+// An *assessment* of a candidate system — distinct from McpConnector, which is
+// a server we actually talk to. `existing_connector_id` links the two.
+export type BacklogPhase = 'day_90' | 'later';
+export type BacklogMcpServer = 'official' | 'community' | 'none' | 'unknown';
+// Only the two bindings MCP spec 2026-07-28 defines as standard — deliberately
+// NOT McpTransport, which still carries the deprecated `sse` (CONCERNS.md D8).
+export type BacklogTransport = 'streamable_http' | 'stdio';
+export type BacklogAuthModel = 'oauth2' | 'api_token' | 'iam' | 'unknown';
+export type BacklogStatus =
+  | 'proposed'
+  | 'access_requested'
+  | 'approved'
+  | 'connected'
+  | 'deferred'
+  | 'blocked';
+
+export interface ConnectorBacklogItem {
+  id: string;
+  system_name: string;
+  rank: number;
+  phase: BacklogPhase;
+  mcp_server: BacklogMcpServer;
+  mcp_server_note: string | null;
+  transport: BacklogTransport | null;
+  auth_model: BacklogAuthModel | null;
+  data_sensitivity: Sensitivity;
+  candidate_tools: string[];
+  access_owner: string | null;
+  status: BacklogStatus;
+  rationale: string;
+  blockers: string | null;
+  existing_connector_id: string | null;
+  updated_at: string;
 }
 
 // ---- MCP Connectors -------------------------------------------------------

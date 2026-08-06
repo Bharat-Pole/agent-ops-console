@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card, Button, Badge } from '@/components/primitives';
 import { AssetRefLink } from '@/components/domain';
 import type { PhaseProps } from '../WizardPage';
+import { McpDependencies } from '../McpDependencies';
 import { useWorkspace } from '@/kernel/store';
 import { ChevronDown, ChevronRight, ArrowRight, ArrowLeft, Ban, ShieldAlert } from 'lucide-react';
 import { cn } from '@/utils/cn';
@@ -106,6 +107,11 @@ export function Phase4Configure({ draft, goPhase }: PhaseProps) {
           </div>
         </div>
       </Card>
+
+      {/* Which MCP servers the bound tools resolve to. Phase 4 is the first
+          point where bound_tools exist, so it is the first point the agent's
+          connector dependency set can be stated. */}
+      <McpDependencies agentIdStr={c.identity.agent_id.value} />
 
       {/* Advanced settings accordion (governance-critical fields NEVER live here) */}
       <Card pad={false}>
