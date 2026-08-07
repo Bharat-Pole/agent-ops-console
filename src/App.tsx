@@ -14,6 +14,9 @@ import PromptDetailPage from '@/modules/prompts/PromptDetailPage';
 import ToolsPage from '@/modules/tools/ToolsPage';
 import KnowledgePage from '@/modules/knowledge/KnowledgePage';
 import A2APage from '@/modules/a2a/A2APage';
+import ModelsPage from '@/modules/models/ModelsPage';
+import BuilderPage from '@/modules/builder/BuilderPage';
+import AdminPage from '@/modules/admin/AdminPage';
 import GovernancePage from '@/modules/governance/GovernancePage';
 import EvaluationsPage from '@/modules/evaluations/EvaluationsPage';
 import EvalDetailPage from '@/modules/evaluations/EvalDetailPage';
@@ -43,6 +46,8 @@ export default function App() {
           <Route path="/agents/:id" element={<AgentDetailPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/onboarding/:draftId/phase/:n" element={<WizardPage />} />
+          <Route path="/builder" element={<BuilderPage />} />
+          <Route path="/builder/:agentId" element={<BuilderPage />} />
           <Route path="/playground" element={<PlaygroundPage />} />
           <Route path="/playground/:agentId" element={<PlaygroundPage />} />
 
@@ -53,6 +58,10 @@ export default function App() {
           <Route path="/knowledge" element={<KnowledgePage />} />
           <Route path="/a2a" element={<A2APage />} />
           <Route path="/a2a/:agentId" element={<A2APage />} />
+          <Route path="/models" element={<ModelsPage />} />
+
+          {/* PLATFORM */}
+          <Route path="/admin" element={<AdminPage />} />
 
           {/* GOVERNANCE */}
           <Route path="/governance" element={<GovernancePage />} />

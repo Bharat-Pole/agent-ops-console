@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Card, Button, Badge } from '@/components/primitives';
+import { Card, Button, Badge, Modal } from '@/components/primitives';
 import { GovernanceMatrix, AssetRefLink } from '@/components/domain';
 import { useWorkspace } from '@/kernel/store';
 import { api } from '@/kernel/api';
 import { agentId, type CapabilityTier, type RiskTier } from '@/types';
-import { PATH_DEFS, GOVERNANCE_MATRIX, FAST_PATH_WARN_DAYS } from '@/kernel/constants';
-import { daysUntil, fmtDate } from '@/utils/format';
-import { RotateCcw, AlertTriangle } from 'lucide-react';
+import { FAST_PATH_WARN_DAYS, buildMatrixFromRules, buildPathDefsMap } from '@/kernel/constants';
+import { daysUntil, fmtDate, fmtDateTime } from '@/utils/format';
+import { RotateCcw, AlertTriangle, ShieldOff, Plus } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 export function MatrixPolicies() {
@@ -15,7 +15,12 @@ export function MatrixPolicies() {
   const [params] = useSearchParams();
   const agents = useWorkspace((s) => s.agents);
   const persona = useWorkspace((s) => s.ui.persona);
+  const policyRules = useWorkspace((s) => s.policyRules);
+  const pathDefinitions = useWorkspace((s) => s.pathDefinitions);
   const canRecert = persona === 'governance_officer';
+
+  const matrix = buildMatrixFromRules(policyRules);
+  const pathDefs = buildPathDefsMap(pathDefinitions);
 
   const [cell, setCell] = useState<{ tier: CapabilityTier; risk: RiskTier } | null>(() => {
     const t = params.get('tier') as CapabilityTier | null;
@@ -45,12 +50,12 @@ export function MatrixPolicies() {
       <div className="space-y-4">
         <Card>
           <div className="mb-3 text-[13px] font-semibold text-text-hi">Governance matrix — click a cell</div>
-          <GovernanceMatrix activeTier={cell?.tier} activeRisk={cell?.risk} counts={counts} onCell={(tier, risk) => setCell({ tier, risk })} />
+          <GovernanceMatrix activeTier={cell?.tier} activeRisk={cell?.risk} counts={counts} onCell={(tier, risk) => setCell({ tier, risk })} matrix={matrix} pathDefs={pathDefs} />
           {cell && (
             <div className="mt-3">
               <div className="text-[12px] text-text-mid">
                 <span className="capitalize">{cell.tier}</span> × <span className="capitalize">{cell.risk}</span> →{' '}
-                <Badge tone="accent">{PATH_DEFS[GOVERNANCE_MATRIX[cell.tier][cell.risk]].label}</Badge>
+                <Badge tone="accent">{pathDefs[matrix[cell.tier][cell.risk]].label}</Badge>
               </div>
               <div className="mt-2 space-y-1">
                 {cellAgents.length ? cellAgents.map((a) => (
@@ -68,8 +73,8 @@ export function MatrixPolicies() {
           <div className="space-y-1.5">
             {(['fast', 'standard', 'deep', 'critical'] as const).map((p) => (
               <div key={p} className="text-[12px]">
-                <Badge tone={p === 'fast' ? 'ok' : p === 'standard' ? 'accent' : p === 'deep' ? 'warn' : 'err'}>{PATH_DEFS[p].label}</Badge>
-                <span className="ml-2 text-text-low">{PATH_DEFS[p].desc}</span>
+                <Badge tone={p === 'fast' ? 'ok' : p === 'standard' ? 'accent' : p === 'deep' ? 'warn' : 'err'}>{pathDefs[p].label}</Badge>
+                <span className="ml-2 text-text-low">{pathDefs[p].desc}</span>
               </div>
             ))}
           </div>
@@ -117,7 +122,98 @@ export function MatrixPolicies() {
             </tbody>
           </table>
         </Card>
+
+        <ExceptionsCard canManage={canRecert} />
       </div>
     </div>
+  );
+}
+
+function ExceptionsCard({ canManage }: { canManage: boolean }) {
+  const agents = useWorkspace((s) => s.agents);
+  const exceptions = useWorkspace((s) => s.governanceExceptions);
+  const [grantOpen, setGrantOpen] = useState(false);
+
+  const active = exceptions.filter((e) => e.status === 'active');
+
+  return (
+    <Card>
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[13px] font-semibold text-text-hi">Governance exceptions</div>
+        <Button variant="subtle" size="tiny" icon={<Plus size={11} />} disabled={!canManage} onClick={() => setGrantOpen(true)} title={canManage ? '' : 'Governance Officer only'}>Grant</Button>
+      </div>
+      <div className="mb-2 text-[11px] text-text-low">
+        A temporary governance exception — real register with a real expiry date, not a free-text field. Auto-expires server-side; doesn't silently become permanent.
+      </div>
+      {active.length === 0 ? (
+        <div className="text-[12px] text-text-low">No active exceptions.</div>
+      ) : (
+        <div className="space-y-1.5">
+          {active.map((e) => {
+            const a = agents.find((x) => agentId(x) === e.agent_id);
+            const d = daysUntil(e.expires_at);
+            const near = d !== null && d <= 14;
+            return (
+              <div key={e.id} className="rounded-control border border-warn/30 bg-warn/5 px-2.5 py-2">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[12px] font-medium text-text-hi">{a?.config.identity.agent_name.value ?? e.agent_id}</span>
+                  <Badge tone={near ? 'err' : 'warn'}>{near && <AlertTriangle size={10} />} expires {fmtDate(e.expires_at)}</Badge>
+                </div>
+                <div className="text-[11px] text-text-mid">{e.reason}</div>
+                <div className="mt-1 flex items-center justify-between text-[10px] text-text-low">
+                  <span>granted by {e.granted_by} · {fmtDateTime(e.created_at)}</span>
+                  <Button variant="ghost" size="tiny" icon={<ShieldOff size={11} />} disabled={!canManage} onClick={() => void api.revokeException(e.id)}>Revoke</Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <GrantExceptionModal open={grantOpen} onClose={() => setGrantOpen(false)} />
+    </Card>
+  );
+}
+
+function GrantExceptionModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const agents = useWorkspace((s) => s.agents);
+  const [agentIdVal, setAgentIdVal] = useState('');
+  const [reason, setReason] = useState('');
+  const [expiresAt, setExpiresAt] = useState('');
+
+  const reset = () => { setAgentIdVal(''); setReason(''); setExpiresAt(''); };
+  const canSubmit = agentIdVal.length > 0 && reason.trim().length > 0 && expiresAt.length > 0;
+
+  const submit = () => {
+    if (!canSubmit) return;
+    void api.grantException({ agent_id: agentIdVal, reason: reason.trim(), expires_at: new Date(expiresAt).toISOString() });
+    reset();
+    onClose();
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => { reset(); onClose(); }}
+      title="Grant governance exception"
+      footer={<><Button variant="ghost" onClick={() => { reset(); onClose(); }}>Cancel</Button><Button variant="primary" disabled={!canSubmit} onClick={submit}>Grant</Button></>}
+    >
+      <div className="space-y-3">
+        <div>
+          <div className="mb-1 text-[12px] text-text-low">Agent</div>
+          <select value={agentIdVal} onChange={(e) => setAgentIdVal(e.target.value)} className="h-8 w-full rounded-control border border-border bg-canvas px-2 text-[13px] text-text-mid focus-ring">
+            <option value="">— select —</option>
+            {agents.map((a) => <option key={agentId(a)} value={agentId(a)}>{a.config.identity.agent_name.value}</option>)}
+          </select>
+        </div>
+        <div>
+          <div className="mb-1 text-[12px] text-text-low">Reason</div>
+          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this exception is needed" className="w-full rounded-control border border-border bg-canvas px-2.5 py-2 text-[13px] text-text-hi focus-ring" />
+        </div>
+        <div>
+          <div className="mb-1 text-[12px] text-text-low">Expires on</div>
+          <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} className="w-full rounded-control border border-border bg-canvas px-2.5 py-2 text-[13px] text-text-hi focus-ring" />
+        </div>
+      </div>
+    </Modal>
   );
 }

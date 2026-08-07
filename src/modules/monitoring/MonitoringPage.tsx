@@ -20,7 +20,7 @@ export default function MonitoringPage() {
   const setTab = (t: string) => setParams((p) => { p.set('tab', t); return p; });
   return (
     <div>
-      <PageHeader title="Monitoring & FinOps" description="Per-agent health and 30-day usage & cost, from the seeded telemetry generator." />
+      <PageHeader title="Monitoring & FinOps" description="Per-agent health and 30-day usage & cost, from real chat/eval call telemetry." />
       <Tabs items={[{ key: 'health', label: 'Health' }, { key: 'cost', label: 'Usage & Cost' }] as TabItem[]} active={tab} onChange={setTab} className="mb-4" />
       {tab === 'health' ? <HealthTab /> : <CostTab />}
     </div>

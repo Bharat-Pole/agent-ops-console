@@ -7,6 +7,7 @@ import type {
   GovernancePath,
   Persona,
   PathDefinition,
+  PolicyRule,
 } from '@/types';
 
 // ---- Governance matrix f(capability, risk) — Section 8.1, VERBATIM --------
@@ -18,6 +19,24 @@ export const GOVERNANCE_MATRIX: Record<CapabilityTier, Record<RiskTier, Governan
 
 export function governancePathFor(tier: CapabilityTier, risk: RiskTier): GovernancePath {
   return GOVERNANCE_MATRIX[tier][risk];
+}
+
+// Real, DB-backed policy (Blueprint §9 policy-as-configuration) — turns the
+// store's flat policyRules/pathDefinitions arrays (hydrated from
+// GET /v1/bootstrap) into the same lookup shapes GOVERNANCE_MATRIX/PATH_DEFS
+// used to provide as hardcoded constants. Falls back to those constants for
+// any (tier, risk) or path the server hasn't returned yet (e.g. before the
+// first hydration resolves), so the UI never renders a blank cell.
+export function buildMatrixFromRules(rules: PolicyRule[]): Record<CapabilityTier, Record<RiskTier, GovernancePath>> {
+  const matrix = { minimal: { ...GOVERNANCE_MATRIX.minimal }, standardized: { ...GOVERNANCE_MATRIX.standardized }, advanced: { ...GOVERNANCE_MATRIX.advanced } };
+  for (const r of rules) matrix[r.capability_tier][r.risk_tier] = r.governance_path;
+  return matrix;
+}
+
+export function buildPathDefsMap(defs: PathDefinition[]): Record<GovernancePath, PathDefinition> {
+  const map = { ...PATH_DEFS };
+  for (const d of defs) map[d.path] = d;
+  return map;
 }
 
 // ---- Path definitions — Section 8.1, verbatim ----------------------------

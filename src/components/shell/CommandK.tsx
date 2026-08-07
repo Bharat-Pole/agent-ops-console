@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, LayoutGrid, FileText, Wrench, Database } from 'lucide-react';
+import { Search, LayoutGrid, FileText, Wrench, Database, Layers } from 'lucide-react';
 import { useWorkspace } from '@/kernel/store';
 import { agentId, agentName } from '@/types';
 import { cn } from '@/utils/cn';
 
 interface Hit {
-  kind: 'agent' | 'prompt' | 'tool' | 'source';
+  kind: 'agent' | 'prompt' | 'tool' | 'source' | 'model';
   id: string;
   name: string;
   sub: string;
@@ -18,11 +18,12 @@ export function CommandK({ open, onClose }: { open: boolean; onClose: () => void
   const [q, setQ] = useState('');
   const [idx, setIdx] = useState(0);
   const navigate = useNavigate();
-  const { agents, prompts, tools, sources } = useWorkspace((s) => ({
+  const { agents, prompts, tools, sources, models } = useWorkspace((s) => ({
     agents: s.agents,
     prompts: s.prompts,
     tools: s.tools,
     sources: s.sources,
+    models: s.ui.featureFlags.model_repository ? s.models : [],
   }));
 
   const hits = useMemo<Hit[]>(() => {
@@ -55,11 +56,18 @@ export function CommandK({ open, onClose }: { open: boolean; onClose: () => void
         sub: `Knowledge source`,
         to: `/knowledge`,
       })),
+      ...models.map((m) => ({
+        kind: 'model' as const,
+        id: m.id,
+        name: m.name,
+        sub: `Model · ${m.roles.join('/')}`,
+        to: `/models`,
+      })),
     ];
     if (!q.trim()) return all.slice(0, 8);
     const needle = q.toLowerCase();
     return all.filter((h) => h.name.toLowerCase().includes(needle) || h.id.toLowerCase().includes(needle)).slice(0, 12);
-  }, [agents, prompts, tools, sources, q]);
+  }, [agents, prompts, tools, sources, models, q]);
 
   useEffect(() => {
     if (open) {
@@ -89,7 +97,7 @@ export function CommandK({ open, onClose }: { open: boolean; onClose: () => void
 
   if (!open) return null;
 
-  const ICON = { agent: LayoutGrid, prompt: FileText, tool: Wrench, source: Database };
+  const ICON = { agent: LayoutGrid, prompt: FileText, tool: Wrench, source: Database, model: Layers };
 
   return (
     <div className="fixed inset-0 z-[150] flex items-start justify-center p-4 pt-[12vh]">
@@ -104,7 +112,7 @@ export function CommandK({ open, onClose }: { open: boolean; onClose: () => void
               setQ(e.target.value);
               setIdx(0);
             }}
-            placeholder="Search agents, prompts, tools, sources…"
+            placeholder="Search agents, prompts, tools, sources, models…"
             className="h-11 flex-1 bg-transparent text-[14px] text-text-hi placeholder:text-text-low outline-none"
           />
           <kbd className="rounded border border-border px-1.5 py-0.5 text-[10px] mono text-text-low">esc</kbd>

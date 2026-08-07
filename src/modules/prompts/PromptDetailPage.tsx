@@ -3,17 +3,19 @@ import { PageHeader } from '@/components/shell/PageHeader';
 import { Breadcrumbs } from '@/components/shell/Breadcrumbs';
 import { Card, Button, Badge, EmptyState, Tooltip } from '@/components/primitives';
 import { useWorkspace } from '@/kernel/store';
-import { audit, nowIso } from '@/kernel/api';
+import { api } from '@/kernel/api';
 import { agentId } from '@/types';
+import type { PromptCategory, PromptKind } from '@/types';
 import { fmtDate, titleCase } from '@/utils/format';
-import { Copy, GitBranch, CheckCircle2, Archive, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Copy, GitBranch, CheckCircle2, Archive, Trash2, Sparkles, Save } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
-function bumpVersion(v: string): string {
-  const m = /^v(\d+)(?:\.(\d+))?$/.exec(v);
-  if (!m) return v + '-next';
-  if (m[2] !== undefined) return `v${m[1]}.${Number(m[2]) + 1}`;
-  return `v${Number(m[1]) + 1}`;
+const KIND_OPTIONS: PromptKind[] = ['system', 'safety', 'citation', 'template'];
+const CATEGORY_OPTIONS: PromptCategory[] = ['agent', 'tool', 'mcp', 'rag'];
+const inputCls = 'w-full rounded-control border border-border bg-canvas px-2.5 py-2 text-[13px] text-text-hi placeholder:text-text-low focus-ring';
+
+function Label({ children }: { children: React.ReactNode }) {
+  return <div className="mb-1 text-[12px] font-medium text-text-mid">{children}</div>;
 }
 
 export default function PromptDetailPage() {
@@ -21,45 +23,116 @@ export default function PromptDetailPage() {
   const navigate = useNavigate();
   const prompt = useWorkspace((s) => s.prompts.find((p) => p.id === id));
   const agents = useWorkspace((s) => s.agents);
-  const upsertPrompt = useWorkspace((s) => s.upsertPrompt);
   const persona = useWorkspace((s) => s.ui.persona);
   const pushToast = useWorkspace((s) => s.pushToast);
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [draftKind, setDraftKind] = useState<PromptKind>('template');
+  const [draftCategory, setDraftCategory] = useState<PromptCategory>('agent');
+  const [draftBody, setDraftBody] = useState('');
   const canApprove = persona === 'governance_officer';
+
+  useEffect(() => {
+    if (!prompt) return;
+    setDraftName(prompt.name);
+    setDraftKind(prompt.kind);
+    setDraftCategory(prompt.category);
+    setDraftBody(prompt.body);
+  }, [prompt?.id, prompt?.version]);
 
   if (!prompt) {
     return <div><Breadcrumbs items={[{ label: 'Prompt Repository', to: '/prompts' }, { label: id ?? 'prompt' }]} /><EmptyState title="Prompt not found" action={<Button variant="primary" onClick={() => navigate('/prompts')}>Back</Button>} /></div>;
   }
 
+  const isDraft = prompt.status === 'draft';
+  const isDirty = isDraft && (draftName !== prompt.name || draftKind !== prompt.kind || draftCategory !== prompt.category || draftBody !== prompt.body);
   const usedByAgents = agents.filter((a) => prompt.used_by.includes(agentId(a)));
   const inUse = usedByAgents.length > 0;
 
   const copy = async () => { try { await navigator.clipboard.writeText(prompt.body); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* ignore */ } };
-  const newVersion = () => { const nv = bumpVersion(prompt.version); upsertPrompt({ ...prompt, version: nv, status: 'draft', history: [...prompt.history, { version: nv, date: nowIso().slice(0, 10), note: 'New version drafted.' }] }); audit('new_version', 'prompt', prompt.id, `Drafted ${nv}.`); pushToast('ok', `Drafted ${nv}.`); };
-  const approve = () => { upsertPrompt({ ...prompt, status: 'approved' }); audit('approve', 'prompt', prompt.id, `Approved ${prompt.version}.`); pushToast('ok', 'Prompt approved.'); };
-  const deprecate = () => { upsertPrompt({ ...prompt, status: 'deprecated' }); audit('deprecate', 'prompt', prompt.id, `Deprecated ${prompt.version}.`); pushToast('info', 'Prompt deprecated.'); };
+
+  const save = async () => {
+    setBusy(true);
+    await api.updatePromptFields(prompt.id, { name: draftName, kind: draftKind, category: draftCategory, body: draftBody });
+    setBusy(false);
+  };
+
+  const generateWithAi = async () => {
+    setBusy(true);
+    const result = await api.generatePromptBody({ kind: draftKind, category: draftCategory, context: { objective: draftName } });
+    setBusy(false);
+    if (result) setDraftBody(result.body);
+  };
+
+  const newVersion = async () => { setBusy(true); await api.newPromptVersion(prompt.id); setBusy(false); };
+  const approve = async () => { setBusy(true); await api.decidePrompt(prompt.id, 'approved'); setBusy(false); };
+  const deprecate = async () => { setBusy(true); await api.deprecatePrompt(prompt.id); setBusy(false); };
 
   return (
     <div>
       <Breadcrumbs items={[{ label: 'Prompt Repository', to: '/prompts' }, { label: prompt.name }]} />
-      <PageHeader title={prompt.name} description={`prompts://${prompt.id}@${prompt.version}`} badges={<span className="flex gap-1.5"><Badge tone="accent">{prompt.kind}</Badge><Badge tone={prompt.status === 'approved' ? 'ok' : prompt.status === 'deprecated' ? 'muted' : 'neutral'}>{titleCase(prompt.status)}</Badge></span>}
+      <PageHeader title={prompt.name} description={`prompts://${prompt.id}@${prompt.version}`} badges={
+        <span className="flex gap-1.5">
+          <Badge tone="accent">{prompt.kind}</Badge>
+          <Badge tone="neutral">{prompt.category}</Badge>
+          <Badge tone={prompt.status === 'approved' ? 'ok' : prompt.status === 'deprecated' ? 'muted' : 'neutral'}>{titleCase(prompt.status)}</Badge>
+          {prompt.source === 'llm_generated' && <Badge tone="info">AI-generated</Badge>}
+        </span>
+      }
         action={
           <div className="flex gap-2">
-            <Button variant="subtle" icon={<GitBranch size={14} />} onClick={newVersion}>New version</Button>
-            {prompt.status !== 'approved' && <Tooltip content={canApprove ? '' : 'Governance Officer only'}><Button variant="primary" icon={<CheckCircle2 size={14} />} disabled={!canApprove} onClick={approve}>Approve</Button></Tooltip>}
-            {prompt.status === 'approved' && <Button variant="ghost" icon={<Archive size={14} />} onClick={deprecate}>Deprecate</Button>}
+            <Button variant="subtle" icon={<GitBranch size={14} />} disabled={busy} onClick={newVersion}>New version</Button>
+            {prompt.status !== 'approved' && <Tooltip content={canApprove ? '' : 'Governance Officer only'}><Button variant="primary" icon={<CheckCircle2 size={14} />} disabled={!canApprove || busy} onClick={approve}>Approve</Button></Tooltip>}
+            {prompt.status === 'approved' && <Button variant="ghost" icon={<Archive size={14} />} disabled={busy} onClick={deprecate}>Deprecate</Button>}
           </div>
         }
       />
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-2 space-y-4">
-          <Card>
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[13px] font-semibold text-text-hi">Body</span>
-              <Button variant="subtle" size="tiny" icon={<Copy size={11} />} onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
-            </div>
-            <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-control border border-border bg-canvas p-3 mono text-[12px] text-text-hi">{prompt.body || '(empty)'}</pre>
-          </Card>
+          {isDraft ? (
+            <Card>
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-[13px] font-semibold text-text-hi">Edit draft</span>
+                <Button variant="primary" size="sm" icon={<Save size={13} />} disabled={busy || !isDirty} onClick={save}>Save</Button>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <Label>Name</Label>
+                  <input className={inputCls} value={draftName} onChange={(e) => setDraftName(e.target.value)} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label>Kind</Label>
+                    <select className={inputCls} value={draftKind} onChange={(e) => setDraftKind(e.target.value as PromptKind)}>
+                      {KIND_OPTIONS.map((k) => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Type</Label>
+                    <select className={inputCls} value={draftCategory} onChange={(e) => setDraftCategory(e.target.value as PromptCategory)}>
+                      {CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <Label>Body</Label>
+                    <Button variant="subtle" size="tiny" icon={<Sparkles size={11} />} disabled={busy} onClick={generateWithAi}>Generate with AI</Button>
+                  </div>
+                  <textarea className={`${inputCls} mono`} rows={10} value={draftBody} onChange={(e) => setDraftBody(e.target.value)} placeholder="Prompt body…" />
+                </div>
+              </div>
+            </Card>
+          ) : (
+            <Card>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[13px] font-semibold text-text-hi">Body</span>
+                <Button variant="subtle" size="tiny" icon={<Copy size={11} />} onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
+              </div>
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-control border border-border bg-canvas p-3 mono text-[12px] text-text-hi">{prompt.body || '(empty)'}</pre>
+            </Card>
+          )}
         </div>
         <div className="space-y-4">
           <Card>

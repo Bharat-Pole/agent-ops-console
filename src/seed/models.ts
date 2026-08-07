@@ -1,0 +1,138 @@
+import type { ModelAsset } from '@/types';
+
+// Section 3.7 (Blueprint) — Model Repository. Two families appear here on
+// purpose, not by accident:
+//
+// 1. The `vertex://` entries are the model refs the demo's synthesis engine
+//    actually writes into G_Model.model_primary / model_fallback on agent
+//    configs (see kernel/config-factory.ts) — i.e. what Agent Registry detail
+//    pages display today.
+// 2. The `claude-*` / `text-embedding-3-small` entries are the models the real
+//    backend (backend/app/services/claude_service.py, embeddings.py) actually
+//    calls at runtime for Playground chat, prompt generation, and RAG
+//    retrieval — keyed off env.ANTHROPIC_MODEL_{MINIMAL,STANDARDIZED,ADVANCED}.
+//
+// Cataloguing both, rather than picking one, surfaces a real governance gap
+// this module exists to catch: the declared model ref on an agent's config and
+// the model that actually executes its requests are not the same thing yet.
+export const SEED_MODELS: ModelAsset[] = [
+  {
+    id: 'vertex://gemini-1.5-flash',
+    name: 'Gemini 1.5 Flash',
+    provider: 'Google Vertex AI',
+    roles: ['llm'],
+    context_window: 1_000_000,
+    cost_input_per_mtok: 0.075,
+    cost_output_per_mtok: 0.3,
+    latency_p50_ms: 900,
+    approved_use_case: 'Minimal and standardized-tier agent runtime (declared default).',
+    risk_tier_mapping: ['low', 'medium'],
+    owner: 'platform-admin@brightspeed.com',
+    deployment_status: 'approved',
+    access_policy: 'Available to all capability tiers as the low-cost default.',
+    fallback_of: null,
+    routing_note: 'Declared on agent configs; not yet the model that actually executes requests — see claude-haiku-4-5 below.',
+  },
+  {
+    id: 'vertex://gemini-1.5-pro',
+    name: 'Gemini 1.5 Pro',
+    provider: 'Google Vertex AI',
+    roles: ['llm'],
+    context_window: 2_000_000,
+    cost_input_per_mtok: 1.25,
+    cost_output_per_mtok: 5.0,
+    latency_p50_ms: 2100,
+    approved_use_case: 'Advanced-tier agent runtime (declared default); fallback model for standardized/advanced tiers.',
+    risk_tier_mapping: ['medium', 'high', 'critical'],
+    owner: 'platform-admin@brightspeed.com',
+    deployment_status: 'approved',
+    access_policy: 'Advanced tier + governance-reviewer sign-off for critical risk tier.',
+    fallback_of: 'vertex://gemini-1.5-flash',
+    routing_note: 'Declared on agent configs; not yet the model that actually executes requests — see claude-opus-5 below.',
+  },
+  {
+    id: 'vertex://text-embedding-004',
+    name: 'Vertex Text Embedding 004',
+    provider: 'Google Vertex AI',
+    roles: ['embedding'],
+    context_window: 2_048,
+    cost_input_per_mtok: 0.025,
+    cost_output_per_mtok: 0,
+    latency_p50_ms: 120,
+    approved_use_case: 'Declared embedding model for RAG-enabled agent configs.',
+    risk_tier_mapping: ['low', 'medium', 'high'],
+    owner: 'platform-admin@brightspeed.com',
+    deployment_status: 'approved',
+    access_policy: 'Available wherever rag_enabled is true.',
+    fallback_of: null,
+    routing_note: 'Declared on agent configs; the RAG backend actually embeds via text-embedding-3-small below.',
+  },
+  {
+    id: 'claude-haiku-4-5-20251001',
+    name: 'Claude Haiku 4.5',
+    provider: 'Anthropic',
+    roles: ['llm'],
+    context_window: 200_000,
+    cost_input_per_mtok: 1.0,
+    cost_output_per_mtok: 5.0,
+    latency_p50_ms: 650,
+    approved_use_case: 'Runtime model actually invoked by the Playground/chat backend for minimal-tier agents (ANTHROPIC_MODEL_MINIMAL).',
+    risk_tier_mapping: ['low', 'medium'],
+    owner: 'ai-engineering@brightspeed.com',
+    deployment_status: 'approved',
+    access_policy: 'Minimal-tier agents only, via server-side tier routing in claude_service.py.',
+    fallback_of: null,
+    routing_note: 'Live in production chat today — not yet reflected as the declared model_primary on the agent config.',
+  },
+  {
+    id: 'claude-sonnet-5',
+    name: 'Claude Sonnet 5',
+    provider: 'Anthropic',
+    roles: ['llm', 'eval'],
+    context_window: 200_000,
+    cost_input_per_mtok: 3.0,
+    cost_output_per_mtok: 15.0,
+    latency_p50_ms: 1400,
+    approved_use_case: 'Runtime model for standardized-tier agents (ANTHROPIC_MODEL_STANDARDIZED); also the fixed model behind prompt generation.',
+    risk_tier_mapping: ['medium', 'high'],
+    owner: 'ai-engineering@brightspeed.com',
+    deployment_status: 'approved',
+    access_policy: 'Standardized-tier agents; also used server-side for /prompts generate and generate-body regardless of requesting agent tier.',
+    fallback_of: 'claude-haiku-4-5-20251001',
+    routing_note: 'Live in production chat and prompt generation today — not yet reflected as the declared model_primary on the agent config.',
+  },
+  {
+    id: 'claude-opus-5',
+    name: 'Claude Opus 5',
+    provider: 'Anthropic',
+    roles: ['llm'],
+    context_window: 200_000,
+    cost_input_per_mtok: 15.0,
+    cost_output_per_mtok: 75.0,
+    latency_p50_ms: 3200,
+    approved_use_case: 'Runtime model actually invoked by the Playground/chat backend for advanced-tier agents (ANTHROPIC_MODEL_ADVANCED).',
+    risk_tier_mapping: ['high', 'critical'],
+    owner: 'ai-engineering@brightspeed.com',
+    deployment_status: 'approved',
+    access_policy: 'Advanced-tier agents only; governance-reviewer sign-off required for critical risk tier per policy.',
+    fallback_of: 'claude-sonnet-5',
+    routing_note: 'Live in production chat today — not yet reflected as the declared model_primary on the agent config.',
+  },
+  {
+    id: 'text-embedding-3-small',
+    name: 'OpenAI text-embedding-3-small',
+    provider: 'OpenAI',
+    roles: ['embedding'],
+    context_window: 8_191,
+    cost_input_per_mtok: 0.02,
+    cost_output_per_mtok: 0,
+    latency_p50_ms: 180,
+    approved_use_case: 'Runtime embedding model actually used by the RAG retrieval backend (embeddings.py) for grounded Playground answers.',
+    risk_tier_mapping: ['low', 'medium', 'high'],
+    owner: 'ai-engineering@brightspeed.com',
+    deployment_status: 'approved',
+    access_policy: 'Used server-side whenever OPENAI_API_KEY is configured; falls back to empty retrieval otherwise.',
+    fallback_of: null,
+    routing_note: 'Live in production retrieval today — not yet reflected as the declared embedding_model on the agent config.',
+  },
+];

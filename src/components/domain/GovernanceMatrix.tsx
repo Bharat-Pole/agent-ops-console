@@ -1,4 +1,4 @@
-import type { CapabilityTier, RiskTier, GovernancePath } from '@/types';
+import type { CapabilityTier, RiskTier, GovernancePath, PathDefinition } from '@/types';
 import { GOVERNANCE_MATRIX, TIER_ORDER, RISK_ORDER, PATH_DEFS } from '@/kernel/constants';
 import { cn } from '@/utils/cn';
 
@@ -15,11 +15,17 @@ export function GovernanceMatrix({
   activeRisk,
   counts,
   onCell,
+  matrix = GOVERNANCE_MATRIX,
+  pathDefs = PATH_DEFS,
 }: {
   activeTier?: CapabilityTier;
   activeRisk?: RiskTier;
   counts?: Record<string, number>; // key `${tier}:${risk}` -> agent count
   onCell?: (tier: CapabilityTier, risk: RiskTier) => void;
+  // Real, DB-backed policy (Blueprint §9 policy-as-configuration) — defaults
+  // to the static constants for any caller that hasn't been updated yet.
+  matrix?: Record<CapabilityTier, Record<RiskTier, GovernancePath>>;
+  pathDefs?: Record<GovernancePath, PathDefinition>;
 }) {
   return (
     <div className="inline-block overflow-hidden rounded-card border border-border">
@@ -41,7 +47,7 @@ export function GovernanceMatrix({
             <tr key={t}>
               <td className="border-r border-border bg-raised/40 px-3 py-2 text-[11px] font-medium capitalize text-text-hi">{t}</td>
               {RISK_ORDER.map((r) => {
-                const path = GOVERNANCE_MATRIX[t][r];
+                const path = matrix[t][r];
                 const active = activeTier === t && activeRisk === r;
                 const count = counts?.[`${t}:${r}`];
                 return (
@@ -54,9 +60,9 @@ export function GovernanceMatrix({
                         active && 'ring-2 ring-offset-1 ring-offset-surface ring-white/70',
                         onCell && 'cursor-pointer hover:brightness-125',
                       )}
-                      title={PATH_DEFS[path].desc}
+                      title={pathDefs[path]?.desc}
                     >
-                      <span className="font-semibold">{PATH_DEFS[path].label}</span>
+                      <span className="font-semibold">{pathDefs[path]?.label ?? path}</span>
                       {count !== undefined && count > 0 && (
                         <span className="text-[10px] opacity-80">{count} agent{count === 1 ? '' : 's'}</span>
                       )}

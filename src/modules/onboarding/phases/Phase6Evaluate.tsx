@@ -5,7 +5,8 @@ import { useWorkspace } from '@/kernel/store';
 import { api } from '@/kernel/api';
 import { DEEP_EVAL_PASS_SCORE } from '@/kernel/constants';
 import { titleCase } from '@/utils/format';
-import { Play, Lock, ArrowRight, ArrowLeft, Loader2, CheckCircle2 } from 'lucide-react';
+import { Play, Lock, ArrowRight, ArrowLeft, Loader2, CheckCircle2, RotateCcw } from 'lucide-react';
+import { useState } from 'react';
 import { cn } from '@/utils/cn';
 
 export function Phase6Evaluate({ draft, goPhase }: PhaseProps) {
@@ -13,6 +14,7 @@ export function Phase6Evaluate({ draft, goPhase }: PhaseProps) {
   const pack = useWorkspace((s) => s.evalPacks.find((p) => p.agent_id === draft.agent_id));
   const approvals = useWorkspace((s) => s.approvals.filter((a) => a.agent_id === draft.agent_id));
   const jobs = useWorkspace((s) => s.jobs);
+  const [regenerating, setRegenerating] = useState(false);
 
   if (!agent || !pack) {
     return <Card><div className="text-[13px] text-text-mid">Register the agent (Phase 3) first.</div><Button className="mt-3" variant="ghost" onClick={() => goPhase(3)}>← Back to Phase 3</Button></Card>;
@@ -74,7 +76,19 @@ export function Phase6Evaluate({ draft, goPhase }: PhaseProps) {
 
       <div className="col-span-2">
         <Card pad={false}>
-          <div className="border-b border-border px-3 py-2.5 text-[13px] font-semibold text-text-hi">Auto-generated eval pack ({pack.cases.length} cases)</div>
+          <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
+            <span className="text-[13px] font-semibold text-text-hi">Auto-generated eval pack ({pack.cases.length} cases)</span>
+            <button
+              type="button"
+              disabled={regenerating}
+              onClick={async () => { setRegenerating(true); await api.regenerateEvalPack(pack.id); setRegenerating(false); }}
+              className="flex items-center gap-1 text-[11px] text-accent hover:underline disabled:opacity-50"
+              title="Rebuild these cases from the agent's current objective and bound source — useful if they still look generic."
+            >
+              {regenerating ? <Loader2 size={11} className="animate-spin-slow" /> : <RotateCcw size={11} />}
+              {regenerating ? 'Regenerating…' : 'Regenerate cases'}
+            </button>
+          </div>
           <div className="divide-y divide-border/50">
             {pack.cases.map((c) => (
               <div key={c.test_id} className={cn('flex items-start gap-2 px-3 py-2', c.category === 'safety_boundary' && c.last_result === 'fail' && 'bg-err/10')}>

@@ -32,7 +32,7 @@
     background: color-mix(in srgb, var(--accent) 40%, transparent);
   }
 
-  /* Scrollbars tuned for the dark theme */
+  /* Scrollbars — colors come from the theme tokens, so this works in any theme */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;

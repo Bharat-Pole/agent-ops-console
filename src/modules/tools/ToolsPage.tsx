@@ -1,13 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/shell/PageHeader';
-import { Tabs, Card, Button, Badge, DataTable, Drawer, JsonViewer, type Column, type FilterDef, type TabItem } from '@/components/primitives';
+import { Tabs, Card, Button, Badge, DataTable, Drawer, Modal, JsonViewer, type Column, type FilterDef, type TabItem } from '@/components/primitives';
 import { useWorkspace } from '@/kernel/store';
 import { api } from '@/kernel/api';
-import { agentId, type ToolAsset, type McpConnector } from '@/types';
+import { agentId, type ToolAsset, type McpConnector, type ToolPermission } from '@/types';
 import { fmtDateTime } from '@/utils/format';
-import { Ban, Radio, Power, Activity, Loader2 } from 'lucide-react';
+import { Ban, Radio, Power, Activity, Loader2, Plus } from 'lucide-react';
 import { cn } from '@/utils/cn';
+
+const SELECT_CLS = 'h-8 rounded-control border border-border bg-canvas px-2 text-[13px] text-text-mid focus-ring';
+const INPUT_CLS = 'w-full rounded-control border border-border bg-canvas px-2.5 py-2 text-[13px] text-text-hi focus-ring';
+const TOOL_PERMISSIONS: ToolPermission[] = ['read', 'summarize', 'draft', 'recommend', 'validate'];
 
 export default function ToolsPage() {
   const [params, setParams] = useSearchParams();
@@ -15,6 +19,15 @@ export default function ToolsPage() {
   const setTab = (t: string) => setParams((p) => { p.set('tab', t); return p; });
   const tools = useWorkspace((s) => s.tools);
   const connectors = useWorkspace((s) => s.connectors);
+  const [registerOpen, setRegisterOpen] = useState(false);
+
+  useEffect(() => {
+    if (params.get('new') === '1') {
+      const p = new URLSearchParams(params); p.delete('new'); setParams(p, { replace: true });
+      setRegisterOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const tabs: TabItem[] = [
     { key: 'catalog', label: 'Tool Catalog', count: tools.length },
@@ -23,10 +36,76 @@ export default function ToolsPage() {
 
   return (
     <div>
-      <PageHeader title="Tools & MCP" description="Advisory base scope: tool_permission ∈ {read, summarize, draft, recommend, validate}. Write-capable tools are catalogued for visibility but cannot be bound." />
+      <PageHeader
+        title="Tools & MCP"
+        description="Advisory base scope: tool_permission ∈ {read, summarize, draft, recommend, validate}. Write-capable tools are catalogued for visibility but cannot be bound."
+        action={<Button variant="new" icon={<Plus size={15} />} onClick={() => setRegisterOpen(true)}>Register Tool</Button>}
+      />
       <Tabs items={tabs} active={tab} onChange={setTab} className="mb-4" />
       {tab === 'catalog' ? <ToolCatalog /> : <McpConnectors />}
+      <RegisterToolModal open={registerOpen} onClose={() => setRegisterOpen(false)} />
     </div>
+  );
+}
+
+function RegisterToolModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const connectors = useWorkspace((s) => s.connectors);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('');
+  const [permission, setPermission] = useState<ToolPermission>('read');
+  const [connectorId, setConnectorId] = useState('');
+
+  const reset = () => { setName(''); setDescription(''); setCategory(''); setPermission('read'); setConnectorId(''); };
+  const canSubmit = name.trim().length > 0 && description.trim().length > 0 && category.trim().length > 0;
+
+  const submit = () => {
+    if (!canSubmit) return;
+    void api.registerTool({ name: name.trim(), description: description.trim(), category: category.trim(), permission_ceiling: permission, connector_id: connectorId || null });
+    reset();
+    onClose();
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => { reset(); onClose(); }}
+      title="Register tool"
+      footer={<><Button variant="ghost" onClick={() => { reset(); onClose(); }}>Cancel</Button><Button variant="primary" disabled={!canSubmit} onClick={submit}>Register</Button></>}
+    >
+      <div className="space-y-3">
+        <div>
+          <div className="mb-1 text-[12px] text-text-low">Name</div>
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. billing_reader" className={cn(INPUT_CLS, 'mono')} />
+        </div>
+        <div>
+          <div className="mb-1 text-[12px] text-text-low">Description</div>
+          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this tool does" className={INPUT_CLS} />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <div className="mb-1 text-[12px] text-text-low">Category</div>
+            <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. billing" className={INPUT_CLS} />
+          </div>
+          <div>
+            <div className="mb-1 text-[12px] text-text-low">Permission ceiling</div>
+            <select value={permission} onChange={(e) => setPermission(e.target.value as ToolPermission)} className={cn(SELECT_CLS, 'w-full')}>
+              {TOOL_PERMISSIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+        </div>
+        <div>
+          <div className="mb-1 text-[12px] text-text-low">Connector (optional)</div>
+          <select value={connectorId} onChange={(e) => setConnectorId(e.target.value)} className={cn(SELECT_CLS, 'w-full')}>
+            <option value="">— none —</option>
+            {connectors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div className="rounded-control border border-info/30 bg-info/5 px-2.5 py-2 text-[11px] text-text-mid">
+          Only advisory permissions are offered here — this flow can never register a write-capable tool.
+        </div>
+      </div>
+    </Modal>
   );
 }
 

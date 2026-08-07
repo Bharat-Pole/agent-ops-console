@@ -4,3 +4,16 @@ asyncpg
 python-dotenv
 anthropic
 openai
+pymupdf
+python-docx
+beautifulsoup4
+httpx
+python-multipart
+openpyxl
+aiomysql
+tiktoken
+# Heavy, optional — lazily imported, only needed for the BigQuery connector /
+# local (no-API-key) embedding provider. Everything else works without them.
+google-cloud-bigquery
+db-dtypes
+sentence-transformers

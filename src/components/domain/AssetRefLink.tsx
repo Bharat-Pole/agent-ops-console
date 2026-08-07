@@ -26,7 +26,7 @@ function parseRef(ref: string): Parsed | null {
 
 export function AssetRefLink({ refUri, className }: { refUri: string; className?: string }) {
   const navigate = useNavigate();
-  const store = useWorkspace((s) => ({ prompts: s.prompts, tools: s.tools, sources: s.sources, agents: s.agents }));
+  const store = useWorkspace((s) => ({ prompts: s.prompts, tools: s.tools, sources: s.sources, knowledgeSources: s.knowledgeSources, agents: s.agents, models: s.models, connectors: s.connectors }));
   const parsed = parseRef(refUri);
 
   if (!parsed) {
@@ -48,7 +48,10 @@ export function AssetRefLink({ refUri, className }: { refUri: string; className?
       break;
     case 'kb':
       to = `/knowledge`;
-      resolvable = store.sources.some((s) => s.id === shortId);
+      // Checks both the real, DB-backed sources (Knowledge & RAG module) and
+      // the legacy client-only demo `sources` seed array some pre-existing
+      // seeded agents still reference — either counts as resolved.
+      resolvable = store.knowledgeSources.some((s) => s.id === shortId) || store.sources.some((s) => s.id === shortId);
       break;
     case 'vector':
       to = `/knowledge`;
@@ -62,7 +65,16 @@ export function AssetRefLink({ refUri, className }: { refUri: string; className?
       to = `/governance`;
       resolvable = true; // policies listed on the Matrix & Policies tab
       break;
+    case 'mcp':
+      to = `/tools?tab=mcp`;
+      resolvable = store.connectors.some((c) => c.id === shortId);
+      break;
     case 'vertex':
+      // model_primary/model_fallback refs — resolve into the Model Repository
+      // when catalogued there, otherwise fall back to display-only.
+      resolvable = store.models.some((m) => m.id === refUri);
+      to = resolvable ? '/models' : null;
+      break;
     case 'gs':
     default:
       to = null; // external / storage — display only

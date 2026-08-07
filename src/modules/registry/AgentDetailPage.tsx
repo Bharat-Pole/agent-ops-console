@@ -1,5 +1,5 @@
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { MessagesSquare, Rocket, PauseCircle, Archive } from 'lucide-react';
+import { MessagesSquare, Rocket, PauseCircle, PlayCircle, Archive, Network } from 'lucide-react';
 import { PageHeader } from '@/components/shell/PageHeader';
 import { Breadcrumbs } from '@/components/shell/Breadcrumbs';
 import { Button, EmptyState, Tabs, TierBadge, RiskBadge, Badge, type TabItem } from '@/components/primitives';
@@ -48,14 +48,18 @@ export default function AgentDetailPage() {
   const lifecycle = c.lifecycle.lifecycle_status.value;
   const canProvision = (lifecycle === 'approved' || lifecycle === 'registered') && agent.tracks.registry.status === 'ready' && !live;
 
-  const headerAction = live ? (
+  const headerAction = (
     <div className="flex gap-2">
-      <Button variant="primary" icon={<MessagesSquare size={15} />} onClick={() => navigate(`/playground/${agentId(agent)}`)}>Open in Playground</Button>
-      <PersonaGatedActions agentId={agentId(agent)} />
+      <Button variant="outline" icon={<Network size={15} />} onClick={() => navigate(`/builder/${agentId(agent)}`)}>Open in Builder</Button>
+      {live && (
+        <Button variant="primary" icon={<MessagesSquare size={15} />} onClick={() => navigate(`/playground/${agentId(agent)}`)}>Open in Playground</Button>
+      )}
+      {!live && canProvision && (
+        <Button variant="primary" icon={<Rocket size={15} />} onClick={() => { api.provision(agentId(agent)); setParams((p) => { p.set('tab', 'deployment'); return p; }); }}>Provision</Button>
+      )}
+      <PersonaGatedActions agentId={agentId(agent)} lifecycle={lifecycle} />
     </div>
-  ) : canProvision ? (
-    <Button variant="primary" icon={<Rocket size={15} />} onClick={() => { api.provision(agentId(agent)); setParams((p) => { p.set('tab', 'deployment'); return p; }); }}>Provision</Button>
-  ) : undefined;
+  );
 
   return (
     <div>
@@ -67,7 +71,7 @@ export default function AgentDetailPage() {
           <span className="flex items-center gap-1.5">
             <TierBadge tier={agent.capability_tier} />
             <RiskBadge risk={c.lifecycle.risk_tier.value} />
-            <Badge tone={live ? 'ok' : 'neutral'}>{titleCase(c.lifecycle.lifecycle_status.value)}</Badge>
+            <Badge tone={lifecycle === 'live' ? 'ok' : lifecycle === 'suspended' ? 'warn' : lifecycle === 'retired' ? 'muted' : 'neutral'}>{titleCase(lifecycle)}</Badge>
           </span>
         }
         action={headerAction}
@@ -91,13 +95,21 @@ export default function AgentDetailPage() {
   );
 }
 
-// Suspend / Retire are Governance-Officer-gated (Section 9.2).
-function PersonaGatedActions({ agentId: id }: { agentId: string }) {
+// Suspend / Reactivate / Retire are Governance-Officer-gated (Section 9.2).
+// Suspend and retire now actually block chat/eval server-side (routes/chat.py,
+// evaluations/service.py) — this is real enforcement, not just a status label.
+// Retire is a one-way door by design: no reactivate path back from it,
+// matching real decommissioning semantics (register a new agent instead).
+function PersonaGatedActions({ agentId: id, lifecycle }: { agentId: string; lifecycle: string }) {
   const persona = useWorkspace((s) => s.ui.persona);
-  if (persona !== 'governance_officer') return null;
+  if (persona !== 'governance_officer' || lifecycle === 'retired') return null;
   return (
     <>
-      <Button variant="outline" icon={<PauseCircle size={15} />} onClick={() => api.setLifecycle(id, 'suspended')}>Suspend</Button>
+      {lifecycle === 'suspended' ? (
+        <Button variant="primary" icon={<PlayCircle size={15} />} onClick={() => api.setLifecycle(id, 'live')}>Reactivate</Button>
+      ) : (
+        <Button variant="outline" icon={<PauseCircle size={15} />} onClick={() => api.setLifecycle(id, 'suspended')}>Suspend</Button>
+      )}
       <Button variant="ghost" icon={<Archive size={15} />} onClick={() => api.setLifecycle(id, 'retired')}>Retire</Button>
     </>
   );

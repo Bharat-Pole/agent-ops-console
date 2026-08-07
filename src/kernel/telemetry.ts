@@ -71,7 +71,10 @@ function genForAgent(a: AgentRecord, packScore: number | null): AgentTelemetry {
     const p95 = Math.round(shape.p95 * (0.85 + rng.float() * 0.3) * (1 + spike * 1.5));
     const errors = Math.round(requests * shape.errorRate * (1 + spike * 9) * (0.5 + rng.float()));
 
-    series.push({ day, requests, tokens_in: tin, tokens_out: tout, p95_ms: p95, errors });
+    // cost: 0 here — this generator only fills the brief pre-hydration
+    // placeholder; hydrateFromServer() overwrites it with real per-model cost
+    // (services/monitoring.py) moments later.
+    series.push({ day, requests, tokens_in: tin, tokens_out: tout, p95_ms: p95, errors, cost: 0 });
   }
 
   // Eval-score history trending toward the pack's last score.

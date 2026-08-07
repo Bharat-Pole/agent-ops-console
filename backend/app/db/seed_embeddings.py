@@ -1,6 +1,6 @@
-from app.repositories import knowledge_chunks_repo
+from app.domains.knowledge import knowledge_chunks_repo
 from app.seed_data.snapshot import load_seed_snapshot
-from app.services.embeddings import embed_batch, is_embeddings_configured
+from app.domains.knowledge.embeddings_service import embed_batch, is_embeddings_configured
 
 
 async def seed_embeddings_if_empty() -> None:

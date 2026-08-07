@@ -4,3 +4,5 @@ export * from './schema-meta';
 export * from './assets';
 export * from './governance';
 export * from './telemetry';
+export * from './knowledge';
+export * from './deployment';

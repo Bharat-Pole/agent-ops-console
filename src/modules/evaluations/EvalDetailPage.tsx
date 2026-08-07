@@ -10,7 +10,7 @@ import { api } from '@/kernel/api';
 import { agentId, type EvalCategory } from '@/types';
 import { DEEP_EVAL_PASS_SCORE } from '@/kernel/constants';
 import { titleCase, fmtDate } from '@/utils/format';
-import { Play, Loader2, Wrench, AlertTriangle, Plus } from 'lucide-react';
+import { Play, Loader2, Wrench, AlertTriangle, Plus, FileDown, RotateCcw } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 const CATS: EvalCategory[] = ['grounding', 'correctness', 'safety_boundary', 'latency_cost', 'regression'];
@@ -25,6 +25,7 @@ export default function EvalDetailPage() {
   const upsertPack = useWorkspace((s) => s.upsertEvalPack);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ category: 'correctness' as EvalCategory, input: '', expected: '' });
+  const [regenerating, setRegenerating] = useState(false);
 
   if (!pack) return <div><Breadcrumbs items={[{ label: 'Evaluations', to: '/evaluations' }, { label: packId ?? 'pack' }]} /><EmptyState title="Pack not found" action={<Button variant="primary" onClick={() => navigate('/evaluations')}>Back</Button>} /></div>;
 
@@ -35,7 +36,7 @@ export default function EvalDetailPage() {
   const fixThreshold = async () => {
     if (!agent) return;
     await api.proposeConfigChange(agentId(agent), 'data', 'score_threshold', 0.35);
-    api.runEvaluation(pack.id);
+    void api.runEvaluation(pack.id);
   };
 
   const addCase = () => {
@@ -51,7 +52,12 @@ export default function EvalDetailPage() {
     <div>
       <Breadcrumbs items={[{ label: 'Evaluations', to: '/evaluations' }, { label: agent?.config.identity.agent_name.value ?? pack.id }]} />
       <PageHeader title={`${agent?.config.identity.agent_name.value ?? 'Evaluation'} — eval pack`} description={pack.id}
-        action={<Button variant="primary" icon={running ? <Loader2 size={14} className="animate-spin-slow" /> : <Play size={14} />} disabled={running} onClick={() => api.runEvaluation(pack.id)}>{running ? 'Running…' : 'Run all'}</Button>} />
+        action={
+          <div className="flex gap-2">
+            <Button variant="outline" icon={<FileDown size={14} />} onClick={() => void api.downloadEvidencePack(pack.id)}>Evidence pack</Button>
+            <Button variant="primary" icon={running ? <Loader2 size={14} className="animate-spin-slow" /> : <Play size={14} />} disabled={running} onClick={() => void api.runEvaluation(pack.id)}>{running ? 'Running…' : 'Run all'}</Button>
+          </div>
+        } />
 
       {thresholdBroken && (
         <Card className="mb-4 border-warn/40">
@@ -111,7 +117,18 @@ export default function EvalDetailPage() {
           <Card pad={false}>
             <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
               <span className="text-[13px] font-semibold text-text-hi">Cases ({pack.cases.length})</span>
-              <Button variant="subtle" size="sm" icon={<Plus size={13} />} onClick={() => setAdding((v) => !v)}>Add custom case</Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost" size="sm"
+                  icon={regenerating ? <Loader2 size={13} className="animate-spin-slow" /> : <RotateCcw size={13} />}
+                  disabled={regenerating}
+                  onClick={async () => { setRegenerating(true); await api.regenerateEvalPack(pack.id); setRegenerating(false); }}
+                  title="Rebuild these cases from the agent's current objective and bound source"
+                >
+                  {regenerating ? 'Regenerating…' : 'Regenerate cases'}
+                </Button>
+                <Button variant="subtle" size="sm" icon={<Plus size={13} />} onClick={() => setAdding((v) => !v)}>Add custom case</Button>
+              </div>
             </div>
             {adding && (
               <div className="space-y-2 border-b border-border bg-raised/30 p-3">
@@ -139,7 +156,7 @@ export default function EvalDetailPage() {
                           <div className="text-text-hi">{c.input}</div>
                           <div className="text-[11px] text-text-low">{c.evaluation_method} · {c.pass_threshold} → {c.expected_output}</div>
                         </div>
-                        <Button variant="ghost" size="tiny" icon={<Play size={10} />} disabled={running} onClick={() => api.runEvaluation(pack.id)}>Run</Button>
+                        <Button variant="ghost" size="tiny" icon={<Play size={10} />} disabled={running} onClick={() => void api.runEvaluation(pack.id)}>Run</Button>
                       </div>
                     ))}
                   </div>

@@ -1,9 +1,6 @@
 import type { AgentTelemetry, TelemetryPoint } from '@/types';
 import { DEMO_TODAY } from '@/kernel/constants';
 
-// Simulated token pricing (blended, per 1k tokens) for FinOps estimates.
-export const TOKEN_COST = { input_per_1k: 0.00015, output_per_1k: 0.0006 };
-
 export function money(n: number): string {
   if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
   if (n >= 100) return `$${n.toFixed(0)}`;
@@ -17,8 +14,11 @@ export function compactNum(n: number): string {
   return `${n}`;
 }
 
+// Real cost (services/monitoring.py) — real tokens that day priced at the
+// real per-model rate from the Model Repository, computed server-side since
+// a day can mix models (e.g. a chat call + an eval judge call) at different rates.
 export function pointCost(p: TelemetryPoint): number {
-  return (p.tokens_in / 1000) * TOKEN_COST.input_per_1k + (p.tokens_out / 1000) * TOKEN_COST.output_per_1k;
+  return p.cost;
 }
 
 export function cost30d(t: AgentTelemetry | undefined): number {

@@ -43,8 +43,13 @@ function toolRef(name: string): string {
   return name.startsWith('tools://') ? name : `tools://${name}@v1`;
 }
 
+// Real knowledge-source bindings are unversioned — `kb://{real_source_id}`,
+// no fabricated `@v1` suffix (services/knowledge_binding.py). `source` here
+// is now always a real source's id (Phase1Intent's suggestions come from the
+// real knowledgeSources list), so this must match that format exactly or the
+// binding silently resolves to nothing at runtime.
 function kbRef(source: string): string {
-  return source.startsWith('kb://') ? source : `kb://${source.replace(/_/g, '-')}@v1`;
+  return source.startsWith('kb://') ? source : `kb://${source}`;
 }
 
 export function synthesize(
@@ -92,7 +97,12 @@ export function synthesize(
     sub_agents: subAgents,
     hitl_gates: gates,
     per_sub_agent_prompts: isAdv ? Object.fromEntries(subAgents.map((s) => [s.name, s.prompt_hint])) : null,
-    citation_rules: rag ? 'policies://citation-standard-v1' : null,
+    // Was a hardcoded 'policies://citation-standard-v1' placeholder that
+    // looked resolved but never was — no such asset exists anywhere, and the
+    // server-side ref parser (only understands prompts://) silently treated
+    // it as unset either way. null is the honest default; the real picker on
+    // Phase 4 Configure (CitationRulesField) is how a real one gets set.
+    citation_rules: null,
     cost_label: `${nlu.domain}-ops`,
     a2a_enabled: !rag ? false : true,
     artifact_exchange: isAdv,

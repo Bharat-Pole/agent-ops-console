@@ -2,8 +2,8 @@ import { Card, Button, Badge } from '@/components/primitives';
 import { GovernanceMatrix } from '@/components/domain';
 import type { PhaseProps } from '../WizardPage';
 import { useWorkspace } from '@/kernel/store';
-import { governancePathFor, PATH_DEFS, RISK_ORDER } from '@/kernel/constants';
-import { nowIso, audit } from '@/kernel/api';
+import { api } from '@/kernel/api';
+import { RISK_ORDER, buildMatrixFromRules, buildPathDefsMap } from '@/kernel/constants';
 import type { RiskTier } from '@/types';
 import { titleCase } from '@/utils/format';
 import { ArrowRight, ArrowLeft } from 'lucide-react';
@@ -17,7 +17,8 @@ function deriveRisk(sensitivity: string, regulatory: string, base: RiskTier): Ri
 
 export function Phase5Governance({ draft, patch, goPhase }: PhaseProps) {
   const agent = useWorkspace((s) => s.agents.find((a) => a.config.identity.agent_id.value === draft.agent_id));
-  const patchAgent = useWorkspace((s) => s.patchAgent);
+  const policyRules = useWorkspace((s) => s.policyRules);
+  const pathDefinitions = useWorkspace((s) => s.pathDefinitions);
 
   if (!agent) {
     return <Card><div className="text-[13px] text-text-mid">Register the agent (Phase 3) first.</div><Button className="mt-3" variant="ghost" onClick={() => goPhase(3)}>← Back to Phase 3</Button></Card>;
@@ -26,27 +27,24 @@ export function Phase5Governance({ draft, patch, goPhase }: PhaseProps) {
   const tier = agent.capability_tier;
   const risk = agent.config.lifecycle.risk_tier.value;
   const path = agent.governance_path;
-  const pd = PATH_DEFS[path];
+  // Real policy matrix / path definitions (module 4) — was a hardcoded
+  // client-side copy that could drift from the DB an admin actually edits.
+  const matrix = buildMatrixFromRules(policyRules);
+  const pathDefsMap = buildPathDefsMap(pathDefinitions);
+  const pd = pathDefsMap[path];
 
-  const applyRisk = (newRisk: RiskTier) => {
-    const newPath = governancePathFor(tier, newRisk);
-    patchAgent(draft.agent_id!, (a) => ({
-      ...a,
-      governance_path: newPath,
-      config: { ...a.config, lifecycle: { ...a.config.lifecycle, risk_tier: { ...a.config.lifecycle.risk_tier, value: newRisk, verified_flag: true, confidence: 'high', gap_note: null } } },
-      updated_at: nowIso(),
-    }));
+  const applyRisk = async (newRisk: RiskTier) => {
     patch((d) => ({ ...d, confirmedRisk: newRisk }));
-    audit('config_change', 'agent', draft.agent_id!, `risk_tier → ${newRisk}; governance path re-derived → ${newPath}.`);
+    await api.updateRiskTier(draft.agent_id!, newRisk);
   };
 
   const onSensitivity = (sensitivity: string) => {
     patch((d) => ({ ...d, governance: { ...d.governance, sensitivity } }));
-    applyRisk(deriveRisk(sensitivity, draft.governance.regulatory, risk));
+    void applyRisk(deriveRisk(sensitivity, draft.governance.regulatory, risk));
   };
   const onRegulatory = (regulatory: string) => {
     patch((d) => ({ ...d, governance: { ...d.governance, regulatory } }));
-    applyRisk(deriveRisk(draft.governance.sensitivity, regulatory, risk));
+    void applyRisk(deriveRisk(draft.governance.sensitivity, regulatory, risk));
   };
 
   return (
@@ -72,7 +70,7 @@ export function Phase5Governance({ draft, patch, goPhase }: PhaseProps) {
             <div className="mb-1 text-[12px] font-medium text-text-mid">Risk tier (override)</div>
             <div className="flex gap-1.5">
               {RISK_ORDER.map((r) => (
-                <button key={r} onClick={() => applyRisk(r)} className={`flex-1 rounded-control border px-2 py-1.5 text-[12px] capitalize ${r === risk ? 'border-accent bg-accent/15 text-accent' : 'border-border text-text-mid hover:border-border-strong'}`}>{r}</button>
+                <button key={r} onClick={() => void applyRisk(r)} className={`flex-1 rounded-control border px-2 py-1.5 text-[12px] capitalize ${r === risk ? 'border-accent bg-accent/15 text-accent' : 'border-border text-text-mid hover:border-border-strong'}`}>{r}</button>
               ))}
             </div>
           </div>
@@ -82,7 +80,7 @@ export function Phase5Governance({ draft, patch, goPhase }: PhaseProps) {
       <div className="space-y-4">
         <Card>
           <div className="mb-3 text-[13px] font-semibold text-text-hi">Governance path = f(capability, risk)</div>
-          <GovernanceMatrix activeTier={tier} activeRisk={risk} />
+          <GovernanceMatrix activeTier={tier} activeRisk={risk} matrix={matrix} pathDefs={pathDefsMap} />
         </Card>
         <Card>
           <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-text-hi">Path: <Badge tone="accent">{pd.label}</Badge></div>

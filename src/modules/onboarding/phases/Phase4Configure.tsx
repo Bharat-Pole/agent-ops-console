@@ -1,10 +1,92 @@
 import { useState } from 'react';
 import { Card, Button, Badge } from '@/components/primitives';
 import { AssetRefLink } from '@/components/domain';
+import { GeneratePromptDialog } from '@/modules/prompts/GeneratePromptDialog';
 import type { PhaseProps } from '../WizardPage';
 import { useWorkspace } from '@/kernel/store';
-import { ChevronDown, ChevronRight, ArrowRight, ArrowLeft, Ban, ShieldAlert } from 'lucide-react';
+import { api } from '@/kernel/api';
+import type { AgentRecord } from '@/types';
+import { ChevronDown, ChevronRight, ArrowRight, ArrowLeft, Ban, ShieldAlert, Sparkles } from 'lucide-react';
 import { cn } from '@/utils/cn';
+
+// Section 9.4/9.3 bridge — citation_rules is the one G_Prompt field already
+// surfaced on this page. Lets the builder pick an existing governed citation
+// prompt or draft a fresh one with AI (reviewed before it's saved) instead of
+// only ever inheriting whatever the synthesis engine picked in Phase 1.
+function CitationRulesField({ agent }: { agent: AgentRecord }) {
+  const citationPrompts = useWorkspace((s) => s.prompts.filter((p) => p.kind === 'citation'));
+  const knowledgeSources = useWorkspace((s) => s.knowledgeSources);
+  const persona = useWorkspace((s) => s.ui.persona);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const currentRef = agent.config.prompt.citation_rules.value;
+  const currentId = currentRef ? currentRef.replace('prompts://', '').split('@')[0] : '';
+
+  const setRef = (ref: string) => {
+    void api.proposeConfigChange(agent.config.identity.agent_id.value, 'prompt', 'citation_rules', ref);
+  };
+
+  const onSelect = (id: string) => {
+    const p = citationPrompts.find((x) => x.id === id);
+    if (p) setRef(`prompts://${p.id}@${p.version}`);
+  };
+
+  const onAccept = async (result: { name: string; body: string }) => {
+    const id = await api.createPrompt({
+      name: result.name,
+      body: result.body,
+      kind: 'citation',
+      category: 'rag',
+      owner: `${persona}@brightspeed.com`,
+      source: 'llm_generated',
+      generated_from: agent.config.identity.agent_id.value,
+    });
+    if (id) setRef(`prompts://${id}@v1`);
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-border/50 py-1.5 last:border-0 text-[12px]">
+      <span className="text-text-low">citation_rules</span>
+      <div className="flex items-center gap-1.5">
+        {currentRef ? <AssetRefLink refUri={currentRef} /> : <span className="text-text-low">—</span>}
+        <select
+          className="rounded border border-border bg-canvas px-1.5 py-1 text-[11px] text-text-hi focus-ring"
+          value={citationPrompts.some((p) => p.id === currentId) ? currentId : ''}
+          onChange={(e) => e.target.value && onSelect(e.target.value)}
+        >
+          <option value="" disabled>Select existing…</option>
+          {citationPrompts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.status})</option>)}
+        </select>
+        <button
+          onClick={() => setDialogOpen(true)}
+          className="flex items-center gap-1 rounded border border-border px-1.5 py-1 text-[11px] text-text-mid hover:border-border-strong"
+        >
+          <Sparkles size={11} /> Generate with AI
+        </button>
+        <GeneratePromptDialog
+          open={dialogOpen}
+          onClose={() => setDialogOpen(false)}
+          kind="citation"
+          category="rag"
+          // Was only {agent_name, agent_id} — the AI had no idea what the
+          // agent actually does, hence generic output. Real objective/
+          // audience/tools/sources give it something to ground the draft in.
+          baseContext={{
+            agent_name: agent.config.identity.agent_name.value,
+            agent_id: agent.config.identity.agent_id.value,
+            objective: agent.config.identity.objective.value,
+            audience: agent.config.identity.intended_audience.value,
+            tools: agent.config.tooling.bound_tools.value.map((ref) => ref.replace('tools://', '').split('@')[0]),
+            data_sources: agent.config.data.knowledge_source_refs.value.map((ref) => {
+              const id = ref.replace('kb://', '').split('@')[0];
+              return knowledgeSources.find((s) => s.id === id)?.name ?? id;
+            }),
+          }}
+          onAccept={onAccept}
+        />
+      </div>
+    </div>
+  );
+}
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -41,7 +123,6 @@ function WorkflowDiagram({ subs, gates }: { subs: { name: string }[]; gates: num
 export function Phase4Configure({ draft, goPhase }: PhaseProps) {
   const agent = useWorkspace((s) => s.agents.find((a) => a.config.identity.agent_id.value === draft.agent_id));
   const tools = useWorkspace((s) => s.tools);
-  const patchAgent = useWorkspace((s) => s.patchAgent);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   if (!agent) {
@@ -55,7 +136,7 @@ export function Phase4Configure({ draft, goPhase }: PhaseProps) {
   const boundIds = c.tooling.bound_tools.value.map((t) => t.replace('tools://', '').split('@')[0]);
 
   const toggleA2A = () => {
-    patchAgent(draft.agent_id!, (a) => ({ ...a, config: { ...a.config, orchestration: { ...a.config.orchestration, a2a_enabled: { ...a.config.orchestration.a2a_enabled, value: !a.config.orchestration.a2a_enabled.value } } } }));
+    void api.proposeConfigChange(draft.agent_id!, 'orchestration', 'a2a_enabled', !c.orchestration.a2a_enabled.value);
   };
 
   return (
@@ -75,7 +156,7 @@ export function Phase4Configure({ draft, goPhase }: PhaseProps) {
                 <div className="mb-1 mt-3 text-[11px] font-semibold uppercase tracking-wide text-text-low">Knowledge & RAG</div>
                 <Row label="retrieval_type">{c.data.retrieval_type.value}</Row>
                 {c.data.knowledge_source_refs.value.map((r, i) => <Row key={i} label="source"><AssetRefLink refUri={r} /></Row>)}
-                <Row label="citation_rules">{c.prompt.citation_rules.value ? <AssetRefLink refUri={c.prompt.citation_rules.value} /> : '—'}</Row>
+                <CitationRulesField agent={agent} />
               </>
             )}
             <div className="mb-1 mt-3 text-[11px] font-semibold uppercase tracking-wide text-text-low">A2A</div>

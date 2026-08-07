@@ -13,6 +13,11 @@ import type {
   ApprovalItem,
   AuditEvent,
   AgentTelemetry,
+  ModelAsset,
+  PolicyRule,
+  PathDefinition,
+  GovernanceException,
+  AgentCard,
 } from '@/types';
 import { agentId } from '@/types';
 import { SEED_AGENTS } from './agents';
@@ -23,6 +28,8 @@ import { SEED_SOURCES, SEED_PIPELINE_RUNS } from './sources';
 import { SEED_EVAL_PACKS } from './evals';
 import { SEED_APPROVALS } from './approvals';
 import { SEED_AUDIT } from './audit';
+import { SEED_MODELS } from './models';
+import { SEED_POLICY_RULES, SEED_PATH_DEFINITIONS, SEED_GOVERNANCE_EXCEPTIONS } from './governance';
 import { generateTelemetry } from '@/kernel/telemetry';
 
 export interface WorkspaceData {
@@ -36,6 +43,11 @@ export interface WorkspaceData {
   approvals: ApprovalItem[];
   auditLog: AuditEvent[];
   telemetry: AgentTelemetry[];
+  models: ModelAsset[];
+  policyRules: PolicyRule[];
+  pathDefinitions: PathDefinition[];
+  governanceExceptions: GovernanceException[];
+  a2aCards: AgentCard[];
 }
 
 export function createInitialWorkspace(): WorkspaceData {
@@ -60,5 +72,13 @@ export function createInitialWorkspace(): WorkspaceData {
     approvals: SEED_APPROVALS.map((a) => structuredClone(a)),
     auditLog: SEED_AUDIT.map((e) => structuredClone(e)),
     telemetry: generateTelemetry(agents, packScoreByAgent),
+    models: SEED_MODELS.map((m) => structuredClone(m)),
+    policyRules: SEED_POLICY_RULES.map((r) => structuredClone(r)),
+    pathDefinitions: SEED_PATH_DEFINITIONS.map((p) => structuredClone(p)),
+    governanceExceptions: SEED_GOVERNANCE_EXCEPTIONS.map((e) => structuredClone(e)),
+    // No client-side generator — real cards are derived server-side from live
+    // agent config (services/a2a.py) and arrive via hydrateFromServer(). Empty
+    // until then is the honest pre-hydration state, same as `knowledgeSources`.
+    a2aCards: [],
   };
 }

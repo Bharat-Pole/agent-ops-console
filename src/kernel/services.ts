@@ -10,25 +10,21 @@
 // callbacks additionally sync the resulting tracks/demo_mode back to the
 // server with a best-effort PATCH so a refresh doesn't regress a LIVE agent.
 
-import { ws } from './store';
+import { ws, type FeatureFlags } from './store';
 import { startJob } from './jobs';
 import { audit, nowIso } from './api';
 import { synthesize as runEngine } from './engine';
 import { generatePlaygroundResponse, resolvePromptRef, type MessageKind, type PlaygroundResponse, type RetrievalChunk } from './playground';
 import type {
-  AgentRecord, EvalResult, EvaluationPack, PipelineRun, ToolAsset,
+  AccessGrant, AgentCard, AgentRecord, CapabilityTier, DeploymentRecord, EvaluationPack, GovernanceException,
+  GovernancePath, KnowledgeSource, McpConnector, ModelAsset, PathDefinition, PipelineRun, PolicyRule, PromptAsset,
+  PromptCategory, PromptKind, RefreshCadence, RiskTier, Sensitivity, ToolAsset, ToolPermission,
 } from '@/types';
-import { agentId, isLive } from '@/types';
+import { agentId, isLive, prov } from '@/types';
 import { governancePathFor, FAST_PATH_DAYS } from './constants';
 import { PERSONAS } from './constants';
 import { RUNTIME_STEP_NAMES, CONTENT_STEP_NAMES } from '@/seed/helpers';
 import { latency } from './rng';
-
-function hashStr(s: string): number {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return h >>> 0;
-}
 
 function track(status: 'not_started' | 'in_progress' | 'ready' | 'blocked', steps: AgentRecord['tracks']['runtime']['steps']) {
   return { status, steps };
@@ -37,6 +33,16 @@ function track(status: 'not_started' | 'in_progress' | 'ready' | 'blocked', step
 async function postJson<T>(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: T | null }> {
   try {
     const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+}
+
+async function patchJson<T>(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: T | null }> {
+  try {
+    const res = await fetch(path, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => null);
     return { ok: res.ok, status: res.status, data };
   } catch {
@@ -56,28 +62,6 @@ function syncAgentToServer(agentIdStr: string): void {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ config: a.config, tracks: a.tracks, demo_mode: a.demo_mode }),
   }).catch(() => {});
-}
-
-// ---- Deterministic eval scoring (Section 11.3) — unchanged, still simulated ----
-function casePasses(cat: string, agent: AgentRecord): boolean {
-  const cfg = agent.config;
-  const threshold = cfg.data.score_threshold.value ?? 0.75;
-  const rag = cfg.data.rag_enabled.value;
-  const hasSource = cfg.data.knowledge_source_refs.value.length > 0;
-  switch (cat) {
-    case 'grounding':
-      return rag && hasSource && threshold <= 0.9;
-    case 'safety_boundary':
-      return true;
-    default:
-      return true;
-  }
-}
-
-function cleanScore(agent: AgentRecord): number {
-  const name = agent.config.identity.agent_name.value.toLowerCase();
-  if (name.includes('contract')) return 94;
-  return 90 + (hashStr(agentId(agent)) % 9);
 }
 
 export const services = {
@@ -245,33 +229,70 @@ export const services = {
     }
   },
 
-  // POST /v1/evaluations/:id/run — deterministic eval runner (Section 11.3).
-  // Unchanged this round — real LLM-graded evaluation is a later phase.
-  runEvaluation(packId: string): void {
+  // Real backend call (services/evaluation.py) — actually invokes the agent's
+  // real chat pipeline per case (safety_boundary re-checks the same real
+  // write-intent guard chat.py enforces; grounding/correctness are graded by
+  // a real cheap-tier LLM judge; latency_cost measures a real call's elapsed
+  // time). Needs a running server + ANTHROPIC_API_KEY with credits for any
+  // case beyond safety_boundary — surfaces the real error if not.
+  async runEvaluation(packId: string): Promise<void> {
     const store = ws();
     const pack = store.evalPacks.find((p) => p.id === packId);
-    if (!pack) return;
-    const agent = store.agents.find((a) => agentId(a) === pack.agent_id);
-    if (!agent) return;
-
-    startJob('evaluation_run', `Running evaluation · ${agent.config.identity.agent_name.value}`, packId, [{ label: 'Executing cases…', ms: latency(2000, 4000) }], () => {
-      const results: Record<string, EvalResult> = {};
-      let failGround = 0, failSafety = 0, failOther = 0;
-      for (const c of pack.cases) {
-        const pass = casePasses(c.category, agent);
-        results[c.test_id] = pass ? 'pass' : 'fail';
-        if (!pass) { if (c.category === 'grounding') failGround++; else if (c.category === 'safety_boundary') failSafety++; else failOther++; }
-      }
-      const score = Math.max(0, Math.min(100, cleanScore(agent) - 6 * failGround - 15 * failSafety - 5 * failOther));
-      const updated: EvaluationPack = {
-        ...pack,
-        cases: pack.cases.map((c) => ({ ...c, last_result: results[c.test_id] })),
-        last_run: { date: nowIso().slice(0, 10), score, results },
-      };
-      ws().upsertEvalPack(updated);
-      audit('run_evaluation', 'eval', packId, `Eval scored ${score}${failGround ? ` (${failGround} grounding fail)` : ''}.`);
-      ws().pushToast(score >= 90 ? 'ok' : 'warn', `${agent.config.identity.agent_name.value} eval: ${score}/100.`);
+    const agent = pack ? store.agents.find((a) => agentId(a) === pack.agent_id) : undefined;
+    const jobId = store.nextId('job');
+    store.upsertJob({
+      id: jobId, kind: 'evaluation_run', label: `Running evaluation · ${agent?.config.identity.agent_name.value ?? packId}`,
+      entity_id: packId, status: 'processing', progress: 0.5, step_label: 'Executing cases…', result: null, created_at: nowIso(),
     });
+    const { ok, data } = await postJson<{ pack: EvaluationPack; run: { score: number; error_msg: string | null }; auditEvent: import('@/types').AuditEvent; message?: string }>(
+      `/v1/evaluations/${encodeURIComponent(packId)}/run`, {},
+    );
+    store.removeJob(jobId);
+    if (!ok || !data) { store.pushToast('err', data?.message ?? 'Could not reach the server — evaluation run failed.'); return; }
+    store.upsertEvalPack(data.pack);
+    store.addAuditEvent(data.auditEvent);
+    // Same staleness issue as chatWithAgent — a real run also records real
+    // telemetry and a real eval_score_history point; resync so those aren't
+    // stuck showing pre-run numbers.
+    void services.bootstrapWorkspace();
+    const name = agent?.config.identity.agent_name.value ?? packId;
+    if (data.run.error_msg) {
+      store.pushToast('warn', `${name} eval: ${data.run.score}/100 — some cases errored (${data.run.error_msg.slice(0, 80)}).`);
+    } else {
+      store.pushToast(data.run.score >= 90 ? 'ok' : 'warn', `${name} eval: ${data.run.score}/100.`);
+    }
+  },
+
+  // Rebuilds a pack's cases from the agent's current config using the real,
+  // content-aware generator (services/evaluations/seed_gen.py) — for packs
+  // generated before that existed, or whose agent/source has since changed.
+  async regenerateEvalPack(packId: string): Promise<void> {
+    const store = ws();
+    const { ok, data } = await postJson<{ pack: EvaluationPack; auditEvent: import('@/types').AuditEvent; message?: string }>(
+      `/v1/evaluations/${encodeURIComponent(packId)}/regenerate`, {},
+    );
+    if (!ok || !data) { store.pushToast('err', data?.message ?? 'Could not reach the server — regeneration failed.'); return; }
+    store.upsertEvalPack(data.pack);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', `${data.pack.cases.length} eval case(s) regenerated from current config.`);
+  },
+
+  // Registry — delete an agent (Platform Engineer only, gated client-side same
+  // as other persona-restricted actions in this app). Server-persisted.
+  async deleteAgent(agentIdStr: string): Promise<boolean> {
+    const store = ws();
+    try {
+      const res = await fetch(`/v1/agents/${encodeURIComponent(agentIdStr)}?actorPersona=${encodeURIComponent(PERSONAS[store.ui.persona].label)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) { store.pushToast('err', 'Could not reach the server — delete failed.'); return false; }
+      store.removeAgent(agentIdStr);
+      if (data.auditEvent) store.addAuditEvent(data.auditEvent);
+      store.pushToast('ok', 'Agent deleted.');
+      return true;
+    } catch {
+      store.pushToast('err', 'Could not reach the server — delete failed.');
+      return false;
+    }
   },
 
   // Section 9.2 change control — "Propose change". Server-persisted.
@@ -304,6 +325,35 @@ export const services = {
     return true;
   },
 
+  // Sensitivity-gated bind guard — mirrors bindTool above, but a confidential/
+  // restricted source doesn't hard-reject: it creates a pending risk-officer
+  // approval instead, resolved server-side by the same approvals queue used
+  // for critical config-field changes.
+  async bindKnowledgeSource(agentIdStr: string, sourceId: string): Promise<boolean> {
+    const store = ws();
+    const { ok, data } = await postJson<{
+      ok: boolean;
+      pending?: boolean;
+      agent?: AgentRecord;
+      source?: import('@/types').RealKnowledgeSource;
+      approval?: import('@/types').ApprovalItem;
+      auditEvent?: import('@/types').AuditEvent;
+      message?: string;
+    }>(`/v1/agents/${encodeURIComponent(agentIdStr)}/knowledge/bind`, { sourceId });
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — bind failed.'); return false; }
+    if (data.auditEvent) store.addAuditEvent(data.auditEvent);
+    if (data.pending) {
+      if (data.approval) store.addApproval(data.approval);
+      store.pushToast('warn', data.message ?? 'Pending risk-officer approval.');
+      return false;
+    }
+    if (!data.ok) { store.pushToast('err', data.message ?? `${sourceId} cannot be bound.`); return false; }
+    if (data.agent) store.patchAgent(agentIdStr, () => data.agent!);
+    if (data.source) store.upsertRealSource(data.source);
+    store.pushToast('ok', `${data.source?.name ?? sourceId} bound.`);
+    return true;
+  },
+
   // POST /v1/agents/:id/chat — Phase 2. The deterministic parts (kind,
   // retrieval, citations, toolCalls, routing, shapedBy, canned text for
   // refusal/tool_call) are computed locally via generatePlaygroundResponse
@@ -331,6 +381,13 @@ export const services = {
 
     if (!ok || !data) return base; // server unreachable — fall back to the placeholder text.
 
+    // The real call just recorded real telemetry server-side (request_telemetry
+    // table) — but `store.telemetry` is a snapshot taken once at bootstrap and
+    // nothing else refreshes it, so the Telemetry tab would otherwise sit
+    // frozen even after real traffic. Fire-and-forget resync, doesn't block
+    // returning the answer to the Playground UI.
+    void services.bootstrapWorkspace();
+
     if (data.kind === 'refusal') {
       // The server's independent write-intent re-check overrode the client's classification.
       return { ...base, kind: 'refusal', citations: [], retrieval: [], toolCalls: [], text: data.text, tokenCount: 0, shapedBy: ['tool_permission=read (advisory-only)', 'safety_instructions', 'server-side re-check'] };
@@ -341,29 +398,35 @@ export const services = {
   },
 
   // Run an MCP connector healthcheck (Section 9.5). Unchanged — client-simulated.
-  healthcheck(connectorId: string): void {
+  // Real network attempt (services/mcp.py) — an actual HTTP request to the
+  // connector's endpoint, not a simulated status flip. The seeded connectors
+  // point at fictional *.brightspeed.internal hostnames, so a real healthcheck
+  // against them will honestly report unreachable rather than pretend success.
+  async healthcheck(connectorId: string): Promise<void> {
     const store = ws();
     const conn = store.connectors.find((c) => c.id === connectorId);
     if (!conn) return;
-    startJob('healthcheck', `Healthcheck · ${conn.name}`, connectorId, [{ label: 'Probing endpoint…', ms: latency(600, 1400) }], () => {
-      if (conn.status === 'offline') { ws().pushToast('warn', `${conn.name} is offline.`); return; }
-      const degraded = latency(0, 100) < 18;
-      const status = degraded ? 'degraded' : 'connected';
-      ws().patchConnector(connectorId, { status, last_healthcheck: nowIso() });
-      audit('healthcheck', 'connector', connectorId, `Healthcheck → ${status}.`);
-      ws().pushToast(degraded ? 'warn' : 'ok', `${conn.name}: ${status}.`);
-    });
+    const jobId = store.nextId('job');
+    store.upsertJob({ id: jobId, kind: 'healthcheck', label: `Healthcheck · ${conn.name}`, entity_id: connectorId, status: 'processing', progress: 0.5, step_label: 'Probing endpoint…', result: null, created_at: nowIso() });
+    const { ok, data } = await postJson<{ connector: McpConnector; auditEvent: import('@/types').AuditEvent }>(`/v1/mcp/connectors/${encodeURIComponent(connectorId)}/healthcheck`, {});
+    store.removeJob(jobId);
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — healthcheck failed.'); return; }
+    store.patchConnector(connectorId, data.connector);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast(data.connector.status === 'connected' ? 'ok' : 'warn', `${conn.name}: ${data.connector.status}.`);
   },
 
-  // Demo lever — toggle a connector offline/connected. Unchanged.
-  toggleConnectorOffline(connectorId: string): void {
+  // Manual override — real DB-persisted status flip (services/mcp.py), not a
+  // connectivity test (see healthcheck above for that).
+  async toggleConnectorOffline(connectorId: string): Promise<void> {
     const store = ws();
     const conn = store.connectors.find((c) => c.id === connectorId);
     if (!conn) return;
-    const status = conn.status === 'offline' ? 'connected' : 'offline';
-    store.patchConnector(connectorId, { status, last_healthcheck: nowIso() });
-    audit('toggle_connector', 'connector', connectorId, `Connector set ${status}.${status === 'offline' ? ' Pre-Flight hard blocker #4 now red.' : ''}`);
-    ws().pushToast(status === 'offline' ? 'warn' : 'ok', `${conn.name} ${status}.`);
+    const { ok, data } = await postJson<{ connector: McpConnector; auditEvent: import('@/types').AuditEvent }>(`/v1/mcp/connectors/${encodeURIComponent(connectorId)}/toggle`, {});
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — toggle failed.'); return; }
+    store.patchConnector(connectorId, data.connector);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast(data.connector.status === 'offline' ? 'warn' : 'ok', `${conn.name} ${data.connector.status}.`);
   },
 
   // Section 6.5 — Demo Mode for an agent whose Content track is not ready. Server-persisted.
@@ -386,14 +449,45 @@ export const services = {
     store.pushToast('ok', `${data.agent.config.identity.agent_name.value} re-certified (+${FAST_PATH_DAYS} days).`);
   },
 
+  // Onboarding wizard Phase 5 risk override (Section 9.2). Server re-derives
+  // governance_path from the real policy_rules table (governance_repo) —
+  // was a client-side lookup against a hardcoded copy of the matrix.
+  async updateRiskTier(agentIdStr: string, riskTier: RiskTier): Promise<boolean> {
+    const store = ws();
+    const { ok, data } = await postJson<{ agent: AgentRecord; auditEvent: import('@/types').AuditEvent; message?: string }>(
+      `/v1/agents/${encodeURIComponent(agentIdStr)}/risk-tier`, { risk_tier: riskTier },
+    );
+    if (!ok || !data) { store.pushToast('err', data?.message ?? 'Could not reach the server — risk tier update failed.'); return false; }
+    store.patchAgent(agentIdStr, () => data.agent);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', `risk_tier → ${riskTier}; governance path → ${data.agent.governance_path}.`);
+    return true;
+  },
+
+  // Onboarding Phase 1 — real LLM ranking of existing knowledge sources
+  // against the agent's stated objective (services/source_suggestion_service.py).
+  // Was entirely absent; source selection was 100% manual.
+  async suggestSources(objective: string): Promise<{ source_id: string; name: string; relevance: string; reason: string }[]> {
+    const store = ws();
+    try {
+      const res = await fetch('/v1/knowledge/sources/suggest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ objective }) });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) { store.pushToast('err', data?.message ?? 'Could not reach the server — suggestion failed.'); return []; }
+      return data.suggestions ?? [];
+    } catch {
+      store.pushToast('err', 'Could not reach the server — suggestion failed.');
+      return [];
+    }
+  },
+
   // Suspend / retire (Section 9.2 — Governance Officer actions). Server-persisted.
   async setLifecycle(agentIdStr: string, status: 'suspended' | 'retired' | 'live'): Promise<void> {
     const store = ws();
-    const { ok, data } = await postJson<{ agent: AgentRecord; auditEvent: import('@/types').AuditEvent }>(`/v1/agents/${encodeURIComponent(agentIdStr)}/lifecycle`, { status });
-    if (!ok || !data) { store.pushToast('err', 'Could not reach the server.'); return; }
+    const { ok, data } = await postJson<{ agent: AgentRecord; auditEvent: import('@/types').AuditEvent; message?: string }>(`/v1/agents/${encodeURIComponent(agentIdStr)}/lifecycle`, { status });
+    if (!ok || !data) { store.pushToast('err', data?.message ?? 'Could not reach the server.'); return; }
     store.patchAgent(agentIdStr, () => data.agent);
     store.addAuditEvent(data.auditEvent);
-    store.pushToast('info', `Agent ${status}.`);
+    store.pushToast('info', status === 'live' ? 'Agent reactivated.' : `Agent ${status}.`);
   },
 
   // POST /v1/knowledge/:id/refresh — manual pipeline run (Section 9.6). Unchanged simulation.
@@ -440,5 +534,283 @@ export const services = {
       },
     );
     audit('pipeline_refresh', 'source', sourceId, `Manual re-index started for ${source.name}.`);
+  },
+
+  // ---- Prompt Repository (Section 9.4) — creation + approval, server-persisted ----
+
+  async createPrompt(input: { name: string; kind: PromptKind; category: PromptCategory; owner: string; body?: string; source?: 'manual' | 'llm_generated'; generated_from?: string | null }): Promise<string | null> {
+    const { ok, data } = await postJson<{ prompt: PromptAsset }>('/v1/prompts', input);
+    if (!ok || !data) { ws().pushToast('err', 'Could not reach the server — prompt creation failed.'); return null; }
+    ws().upsertPrompt(data.prompt);
+    return data.prompt.id;
+  },
+
+  // Preview-only draft (name + body) — does not create a new prompt row.
+  // Used by the Generate-with-AI review dialog (create flow) and by the
+  // in-place regenerate button on an existing draft's editor.
+  async generatePromptBody(input: { kind: PromptKind; category: PromptCategory; context: Record<string, unknown> }): Promise<{ name: string; body: string } | null> {
+    const { ok, data } = await postJson<{ name: string; body: string }>('/v1/prompts/generate-body', input);
+    if (!ok || !data) { ws().pushToast('err', 'Could not reach the server — generation failed.'); return null; }
+    return data;
+  },
+
+  async newPromptVersion(promptId: string): Promise<void> {
+    const { ok, data } = await postJson<{ prompt: PromptAsset }>(`/v1/prompts/${encodeURIComponent(promptId)}/new-version`, {});
+    if (!ok || !data) { ws().pushToast('err', 'Could not reach the server — new version failed.'); return; }
+    ws().upsertPrompt(data.prompt);
+    audit('new_version', 'prompt', promptId, `Drafted ${data.prompt.version}.`);
+    ws().pushToast('ok', `Drafted ${data.prompt.version}.`);
+  },
+
+  async updatePromptFields(promptId: string, patch: Partial<Pick<PromptAsset, 'name' | 'kind' | 'category' | 'body' | 'owner'>>): Promise<void> {
+    try {
+      const res = await fetch(`/v1/prompts/${encodeURIComponent(promptId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) { ws().pushToast('err', 'Could not reach the server — save failed.'); return; }
+      ws().upsertPrompt(data.prompt);
+      ws().pushToast('ok', 'Prompt saved.');
+    } catch {
+      ws().pushToast('err', 'Could not reach the server — save failed.');
+    }
+  },
+
+  async decidePrompt(promptId: string, decision: 'approved' | 'rejected'): Promise<void> {
+    const store = ws();
+    const { ok, data } = await postJson<{ prompt: PromptAsset; auditEvent: import('@/types').AuditEvent }>(
+      `/v1/prompts/${encodeURIComponent(promptId)}/decide`,
+      { decision, actorPersona: PERSONAS[store.ui.persona].label },
+    );
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — decision failed.'); return; }
+    store.upsertPrompt(data.prompt);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', decision === 'approved' ? 'Prompt approved.' : 'Prompt rejected.');
+  },
+
+  async deprecatePrompt(promptId: string): Promise<void> {
+    const store = ws();
+    const { ok, data } = await postJson<{ prompt: PromptAsset; auditEvent: import('@/types').AuditEvent }>(
+      `/v1/prompts/${encodeURIComponent(promptId)}/deprecate`,
+      { actorPersona: PERSONAS[store.ui.persona].label },
+    );
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — deprecate failed.'); return; }
+    store.upsertPrompt(data.prompt);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('info', 'Prompt deprecated.');
+  },
+
+  // Knowledge & RAG has no backend route yet (client-simulated, like
+  // triggerPipeline/healthcheck below) — this is a real, immediate store
+  // mutation, not a placeholder. New sources start pending approval; nothing
+  // can bind to them until a Governance Officer approves the source.
+  addKnowledgeSource(input: { name: string; source_uri: string; parser: string; sensitivity: Sensitivity; refresh_cadence: RefreshCadence }): string {
+    const store = ws();
+    const id = store.nextId('src');
+    const source: KnowledgeSource = {
+      id,
+      name: input.name,
+      source_uri: prov(input.source_uri, 'user'),
+      parser: prov(input.parser, 'user'),
+      source_chunking: prov('recursive_1024_128', 'default'),
+      embedding_model: prov('vertex://text-embedding-004', 'default'),
+      index_target: prov(`vector://alloydb-${id}`, 'default'),
+      sensitivity: prov(input.sensitivity, 'user'),
+      source_approval: prov('pending', 'system'),
+      refresh_cadence: prov(input.refresh_cadence, 'user'),
+      source_version: prov('v1', 'default'),
+      document_count: 0,
+      index_size_mb: 0,
+      used_by: [],
+      snippets: [],
+      ingestion: [],
+    };
+    store.upsertSource(source);
+    audit('create_source', 'source', id, `Registered knowledge source "${input.name}" (${input.sensitivity}, pending approval).`);
+    store.pushToast('ok', `${input.name} added — pending approval before any agent can use it.`);
+    return id;
+  },
+
+  // Real backend call (routes/tools.py) — the advisory-only rule (Section 7.6)
+  // is enforced server-side: POST /v1/tools can never mint a write_capable tool
+  // regardless of what the client sends.
+  async registerTool(input: { name: string; description: string; category: string; permission_ceiling: ToolPermission; connector_id: string | null }): Promise<string | null> {
+    const store = ws();
+    const { ok, data } = await postJson<{ tool: ToolAsset; auditEvent: import('@/types').AuditEvent }>('/v1/tools', input);
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — tool registration failed.'); return null; }
+    store.addTool(data.tool);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', `${data.tool.name} registered to the catalog.`);
+    return data.tool.id;
+  },
+
+  // Real backend call (routes/models.py). Unlike registerTool, `id` is
+  // caller-supplied — a model id is a meaningful provider identifier
+  // (e.g. "claude-opus-6"), not something to derive from the display name.
+  async registerModel(input: { id: string; name: string; provider: string; roles: ModelAsset['roles']; deployment_status?: ModelAsset['deployment_status']; approved_use_case?: string }): Promise<string | null> {
+    const store = ws();
+    const { ok, data } = await postJson<{ model: ModelAsset; auditEvent: import('@/types').AuditEvent }>('/v1/models', input);
+    if (!ok || !data) { store.pushToast('err', data ? 'Model registration failed.' : 'Could not reach the server — model registration failed.'); return null; }
+    store.addModel(data.model);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', `${data.model.name} added to the catalog.`);
+    return data.model.id;
+  },
+
+  async updateModel(modelId: string, patch: Partial<ModelAsset>): Promise<void> {
+    const store = ws();
+    const { ok, data } = await patchJson<{ model: ModelAsset }>(`/v1/models/${encodeURIComponent(modelId)}`, patch);
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — update failed.'); return; }
+    store.patchModel(modelId, data.model);
+    store.pushToast('ok', `${data.model.name} updated.`);
+  },
+
+  async deleteModel(modelId: string): Promise<boolean> {
+    const store = ws();
+    try {
+      const res = await fetch(`/v1/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' });
+      if (!res.ok) { store.pushToast('err', 'Could not reach the server — delete failed.'); return false; }
+    } catch {
+      store.pushToast('err', 'Could not reach the server — delete failed.');
+      return false;
+    }
+    store.removeModel(modelId);
+    store.pushToast('ok', 'Model removed from the catalog.');
+    return true;
+  },
+
+  // Policy-as-configuration (Blueprint §9) — real backend call
+  // (routes/governance.py); services/registration.py reads this same table,
+  // so this edit changes real registration behavior immediately.
+  async updatePolicyRule(tier: CapabilityTier, risk: RiskTier, path: GovernancePath): Promise<void> {
+    const store = ws();
+    const { ok, data } = await patchJson<{ rule: PolicyRule; auditEvent: import('@/types').AuditEvent }>(
+      '/v1/governance/policy-rule',
+      { capability_tier: tier, risk_tier: risk, governance_path: path },
+    );
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — policy update failed.'); return; }
+    store.upsertPolicyRule(data.rule);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', `${tier} × ${risk} → ${path} path.`);
+  },
+
+  async updatePathDefinition(path: GovernancePath, patch: Partial<Pick<PathDefinition, 'label' | 'hitl_gates' | 'desc' | 'approvals'>>): Promise<void> {
+    const store = ws();
+    const { ok, data } = await patchJson<{ pathDefinition: PathDefinition; auditEvent: import('@/types').AuditEvent }>(
+      `/v1/governance/path-definition/${encodeURIComponent(path)}`,
+      patch,
+    );
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — path definition update failed.'); return; }
+    store.upsertPathDefinition(data.pathDefinition);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', `${path} path definition updated.`);
+  },
+
+  // Exception Management (Blueprint §9) — a real register with an expiry
+  // date, not a free-text agent field. Server-side validates expires_at is
+  // actually in the future.
+  async grantException(input: { agent_id: string; reason: string; expires_at: string }): Promise<boolean> {
+    const store = ws();
+    const { ok, data } = await postJson<{ exception: GovernanceException; auditEvent: import('@/types').AuditEvent }>('/v1/governance/exceptions', input);
+    if (!ok || !data) { store.pushToast('err', 'Could not grant exception.'); return false; }
+    store.addException(data.exception);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('warn', `Exception granted — expires ${new Date(input.expires_at).toLocaleDateString()}.`);
+    return true;
+  },
+
+  async revokeException(exceptionId: string): Promise<void> {
+    const store = ws();
+    const { ok, data } = await postJson<{ exception: GovernanceException; auditEvent: import('@/types').AuditEvent }>(`/v1/governance/exceptions/${encodeURIComponent(exceptionId)}/revoke`, {});
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — revoke failed.'); return; }
+    store.patchException(exceptionId, data.exception);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', 'Exception revoked.');
+  },
+
+  // Evidence Pack Center (Blueprint §6.3/§11) — a real, freshly-assembled join
+  // of agent config + prompts + eval history + approvals + audit trail
+  // (services/evaluation.py build_evidence_pack), not a stored duplicate.
+  async downloadEvidencePack(packId: string): Promise<void> {
+    const store = ws();
+    try {
+      const res = await fetch(`/v1/evaluations/${encodeURIComponent(packId)}/evidence-pack`);
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) { store.pushToast('err', 'Could not reach the server — evidence pack failed.'); return; }
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `evidence-pack-${packId}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      store.pushToast('ok', 'Evidence pack downloaded.');
+    } catch {
+      store.pushToast('err', 'Could not reach the server — evidence pack failed.');
+    }
+  },
+
+  // Deployment & Access Management (Blueprint §5.10/§9) — a real environment
+  // ladder (staging <-> production), gated server-side on lifecycle_status and
+  // last eval score (services/deployment.py), not a free-text config field.
+  async promoteDeployment(agentIdStr: string, reason?: string): Promise<void> {
+    const store = ws();
+    const { ok, data } = await postJson<{ record: DeploymentRecord; auditEvent: import('@/types').AuditEvent; message?: string }>(
+      `/v1/agents/${encodeURIComponent(agentIdStr)}/deployment/promote`, { reason },
+    );
+    if (!ok || !data) { store.pushToast('err', data?.message ?? 'Could not reach the server — promotion failed.'); return; }
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', `Promoted to ${data.record.to_environment}.`);
+  },
+
+  async rollbackDeployment(agentIdStr: string, reason?: string): Promise<void> {
+    const store = ws();
+    const { ok, data } = await postJson<{ record: DeploymentRecord; auditEvent: import('@/types').AuditEvent; message?: string }>(
+      `/v1/agents/${encodeURIComponent(agentIdStr)}/deployment/rollback`, { reason },
+    );
+    if (!ok || !data) { store.pushToast('err', data?.message ?? 'Could not reach the server — rollback failed.'); return; }
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('warn', `Rolled back to ${data.record.to_environment}.`);
+  },
+
+  async grantAccess(input: { agent_id: string; grantee: string; role_label: string; scope: 'owner' | 'admin' | 'viewer' }): Promise<boolean> {
+    const store = ws();
+    const { ok, data } = await postJson<{ grant: AccessGrant; auditEvent: import('@/types').AuditEvent; message?: string }>('/v1/access-grants', input);
+    if (!ok || !data) { store.pushToast('err', data?.message ?? 'Could not grant access.'); return false; }
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', `Access granted to ${input.grantee}.`);
+    return true;
+  },
+
+  async revokeAccess(grantId: string): Promise<void> {
+    const store = ws();
+    const { ok, data } = await postJson<{ grant: AccessGrant; auditEvent: import('@/types').AuditEvent; message?: string }>(`/v1/access-grants/${encodeURIComponent(grantId)}/revoke`, {});
+    if (!ok || !data) { store.pushToast('err', data?.message ?? 'Could not reach the server — revoke failed.'); return; }
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', 'Access revoked.');
+  },
+
+  // Admin Console → Feature Flags — a real, durable register (feature_flags
+  // table) instead of Zustand-only ui state that reset on every reload.
+  async setFeatureFlag(key: keyof FeatureFlags, value: boolean): Promise<void> {
+    const store = ws();
+    const { ok, data } = await patchJson<{ flag: { key: string; enabled: boolean }; auditEvent: import('@/types').AuditEvent; message?: string }>(
+      `/v1/admin/feature-flags/${encodeURIComponent(key)}`, { enabled: value },
+    );
+    if (!ok || !data) { store.pushToast('err', data?.message ?? 'Could not reach the server — flag update failed.'); return; }
+    store.setFeatureFlag(key, data.flag.enabled);
+    store.addAuditEvent(data.auditEvent);
+  },
+
+  // A2A Directory — the one real-editable field on an otherwise fully
+  // config-derived card (services/a2a.py update_endpoint).
+  async updateA2AEndpoint(agentIdStr: string, endpoint: string): Promise<void> {
+    const store = ws();
+    const { ok, data } = await patchJson<{ card: AgentCard; auditEvent: import('@/types').AuditEvent; message?: string }>(
+      `/v1/a2a/cards/${encodeURIComponent(agentIdStr)}`, { endpoint },
+    );
+    if (!ok || !data) { store.pushToast('err', data?.message ?? 'Could not reach the server — endpoint update failed.'); return; }
+    store.patchA2ACard(agentIdStr, data.card);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', 'A2A endpoint updated.');
   },
 };

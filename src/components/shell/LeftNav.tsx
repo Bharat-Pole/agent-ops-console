@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Plus, PanelLeftClose, PanelLeftOpen, Wand2, FileText, Wrench, Database } from 'lucide-react';
 import { NAV } from '@/nav';
-import { useWorkspace } from '@/kernel/store';
+import { useWorkspace, type FeatureFlags } from '@/kernel/store';
 import { cn } from '@/utils/cn';
 
 const CREATE_MENU = [
@@ -12,9 +12,16 @@ const CREATE_MENU = [
   { label: 'Add Knowledge Source', hint: 'Knowledge & RAG', icon: Database, to: '/knowledge?new=1' },
 ];
 
+// Routes gated by an Admin Console feature flag (see kernel/store.ts FeatureFlags).
+const FLAG_GATED_ROUTES: Record<string, keyof FeatureFlags> = {
+  '/models': 'model_repository',
+  '/builder': 'workflow_builder',
+};
+
 export function LeftNav() {
   const collapsed = useWorkspace((s) => s.ui.navCollapsed);
   const toggleNav = useWorkspace((s) => s.toggleNav);
+  const featureFlags = useWorkspace((s) => s.ui.featureFlags);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -79,7 +86,10 @@ export function LeftNav() {
               </div>
             )}
             {group.label && collapsed && gi > 0 && <div className="my-2 mx-2 border-t border-border" />}
-            {group.items.map((it) => {
+            {group.items.filter((it) => {
+              const gate = FLAG_GATED_ROUTES[it.to];
+              return !gate || featureFlags[gate];
+            }).map((it) => {
               const active =
                 location.pathname === it.to ||
                 location.pathname.startsWith(it.to + '/') ||

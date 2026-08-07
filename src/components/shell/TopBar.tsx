@@ -48,7 +48,7 @@ export function TopBar({ onOpenSearch, onOpenHelp }: { onOpenSearch: () => void;
         className="group flex h-8 w-[360px] items-center gap-2 rounded-control border border-border bg-canvas px-2.5 text-[13px] text-text-low hover:border-border-strong"
       >
         <Search size={14} />
-        <span>Search agents, prompts, tools, sources…</span>
+        <span>Search agents, prompts, tools, sources, models…</span>
         <kbd className="ml-auto rounded border border-border px-1.5 py-0.5 text-[10px] mono text-text-low">
           ⌘K
         </kbd>

@@ -19,6 +19,7 @@ function appr(
     required_by_path: path,
     status,
     actor_persona: status === 'pending' ? null : 'Governance Officer',
+    target_ref: null,
     decided_at: status === 'pending' ? null : isoTs(daysFromToday(-(decidedDaysAgo ?? requestedDaysAgo)), 13),
     note: note ?? (status === 'approved' ? 'Approved — schema valid, advisory scope confirmed.' : status === 'rejected' ? 'Rejected.' : null),
     requested_at: isoTs(daysFromToday(-requestedDaysAgo), 9),

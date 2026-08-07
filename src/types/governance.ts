@@ -1,6 +1,6 @@
 // Section 5.4 / 8 — Governance, evaluation, approvals, audit.
 
-import type { GovernancePath } from './agent';
+import type { CapabilityTier, GovernancePath, RiskTier } from './agent';
 
 // ---- Evaluation packs -----------------------------------------------------
 export type EvalCategory =
@@ -52,6 +52,7 @@ export interface ApprovalItem {
   required_by_path: GovernancePath;
   status: ApprovalStatus;
   actor_persona: string | null;
+  target_ref: string | null;
   decided_at: string | null;
   note: string | null;
   requested_at: string;
@@ -63,6 +64,7 @@ export type EntityType =
   | 'prompt'
   | 'tool'
   | 'connector'
+  | 'model'
   | 'source'
   | 'pipeline'
   | 'eval'
@@ -86,4 +88,29 @@ export interface PathDefinition {
   approvals: string[];
   hitl_gates: number;
   desc: string;
+}
+
+// ---- Policy-as-configuration (Blueprint §9) — real DB rows backing what used
+// to be the hardcoded GOVERNANCE_MATRIX; registration.py reads these live. ---
+export interface PolicyRule {
+  capability_tier: CapabilityTier;
+  risk_tier: RiskTier;
+  governance_path: GovernancePath;
+  updated_at?: string;
+  updated_by?: string | null;
+}
+
+// ---- Governance Exception Register (Blueprint §9 "Exception Management") --
+export type ExceptionStatus = 'active' | 'expired' | 'revoked';
+
+export interface GovernanceException {
+  id: string;
+  agent_id: string;
+  reason: string;
+  granted_by: string;
+  status: ExceptionStatus;
+  expires_at: string;
+  created_at: string;
+  revoked_at: string | null;
+  revoked_by: string | null;
 }

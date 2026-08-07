@@ -14,6 +14,9 @@ import {
   ShieldCheck,
   ClipboardCheck,
   Activity,
+  Layers,
+  Network,
+  Settings,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -40,6 +43,7 @@ export const NAV: NavGroup[] = [
     items: [
       { label: 'Agent Registry', to: '/agents', icon: LayoutGrid },
       { label: 'Onboarding', to: '/onboarding', icon: Wand2 },
+      { label: 'Workflow Builder', to: '/builder', icon: Network },
       { label: 'Playground', to: '/playground', icon: MessagesSquare },
     ],
   },
@@ -50,6 +54,7 @@ export const NAV: NavGroup[] = [
       { label: 'Tools & MCP', to: '/tools', icon: Wrench },
       { label: 'Knowledge & RAG', to: '/knowledge', icon: Database },
       { label: 'A2A Directory', to: '/a2a', icon: Share2 },
+      { label: 'Model Repository', to: '/models', icon: Layers },
     ],
   },
   {
@@ -62,5 +67,9 @@ export const NAV: NavGroup[] = [
       { label: 'Evaluations', to: '/evaluations', icon: ClipboardCheck },
       { label: 'Monitoring & FinOps', to: '/monitoring', icon: Activity },
     ],
+  },
+  {
+    label: 'PLATFORM',
+    items: [{ label: 'Admin Console', to: '/admin', icon: Settings }],
   },
 ];

@@ -21,7 +21,10 @@ export interface Job {
   created_at: string;
 }
 
-// Per-agent daily telemetry point (Section 9.9 telemetry generator).
+// Per-agent daily telemetry point (Section 9.9), from real request_telemetry
+// rows recorded on every chat/eval call (services/monitoring.py). `cost` is
+// real too — real tokens that day priced at the real per-model rate from the
+// Model Repository (module 3), not a flat per-token estimate.
 export interface TelemetryPoint {
   day: string; // ISO date
   requests: number;
@@ -29,6 +32,7 @@ export interface TelemetryPoint {
   tokens_out: number;
   p95_ms: number;
   errors: number;
+  cost: number;
 }
 
 export interface AgentTelemetry {

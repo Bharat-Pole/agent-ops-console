@@ -5,14 +5,17 @@
 // Phase 1 moved several services (decideApproval, bindTool, setLifecycle,
 // recertify, proposeConfigChange, enableDemoMode) to real async backend calls
 // (see /server) — those are no longer pure client-side logic, so they're
-// intentionally NOT exercised here. They're covered by the Phase 1 backend
-// verification instead (curl smoke tests against the write-guard/register/
-// approval endpoints + a Playwright browser run confirming registration
-// persists across a hard refresh). This file keeps testing what's still
-// genuinely client-simulated: provision, runEvaluation, triggerPipeline,
-// toggleConnectorOffline, and export/import round-trip. Where a test needs a
-// precondition that used to come from one of the now-server-side calls, it's
-// set up via a direct store patch instead (clearly commented below).
+// intentionally NOT exercised here. The Tool Registry & MCP module later did
+// the same to toggleConnectorOffline/healthcheck/registerTool (routes/tools.py),
+// and the Evaluation module did the same to runEvaluation (routes/evaluations.py).
+// All of these are covered by real backend verification instead (curl smoke
+// tests against the write-guard/register/approval/tools/mcp/evaluations
+// endpoints + a Playwright browser run confirming registration persists across
+// a hard refresh). This file keeps testing what's still genuinely
+// client-simulated: provision, triggerPipeline, and export/import round-trip.
+// Where a test needs a precondition that used to come from one of the
+// now-server-side calls, it's set up via a direct store patch instead
+// (clearly commented below).
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 (globalThis as any).window = globalThis;
@@ -41,34 +44,29 @@ console.log('\n== Contract still blocked (committee pending) ==');
 
 console.log('\n== Offline toggle → Pre-Flight hard blocker condition (Section 10 #1) ==');
 {
-  api.toggleConnectorOffline('jira');
+  // toggleConnectorOffline is now a real backend call (routes/tools.py) — this
+  // test has no running server, so it simulates the effect directly on the
+  // store, same pattern as proposeConfigChange below.
+  ws().patchConnector('jira', { status: 'offline' });
   check('connector jira is offline', ws().connectors.find((c) => c.id === 'jira')!.status === 'offline');
   // usePreflight reads exactly this: any connector offline → hard blocker #4 red
   check('Pre-Flight would block (a connector is offline)', ws().connectors.some((c) => c.status === 'offline'));
-  api.toggleConnectorOffline('jira'); // restore
+  ws().patchConnector('jira', { status: 'degraded' }); // restore to its seeded status
   check('bringing it back clears the block', !ws().connectors.some((c) => c.status === 'offline'));
 }
 
-console.log('\n== Failing-eval fix story (Contract 82 → fix threshold → 94, Section 11.3) ==');
+console.log('\n== Contract eval pack precondition (Section 11.3) ==');
 {
+  // runEvaluation is now a real backend call (services/evaluation.py) — the
+  // Contract-82-to-94 fix story it used to simulate client-side is covered by
+  // real curl verification against a running server instead (POST
+  // /v1/evaluations/{pack_id}/run, confirmed real safety_boundary regex pass +
+  // honest error surfacing on the other categories). This test just confirms
+  // the seeded precondition the story depends on is still in place.
   const contract = ws().agents.find((a) => agentId(a) === AGENT.contract)!;
+  const pack = ws().evalPacks.find((p) => p.id === PACK.contract)!;
   check('Contract score_threshold starts at 0.95', contract.config.data.score_threshold.value === 0.95);
-  api.runEvaluation(PACK.contract);
-  const p1 = ws().evalPacks.find((p) => p.id === PACK.contract)!;
-  check('eval with 0.95 threshold scores 82', p1.last_run?.score === 82, String(p1.last_run?.score));
-  check('two grounding cases fail', p1.cases.filter((c) => c.category === 'grounding' && c.last_result === 'fail').length === 2);
-  check('promotion locked (< 90 on Deep path)', (p1.last_run?.score ?? 0) < 90);
-
-  // proposeConfigChange is now a real backend call (Phase 1) — simulate its
-  // effect directly on the store here since this test is exercising
-  // runEvaluation's scoring response to config, not the HTTP round-trip
-  // (which is covered by the server-side bindTool/register curl checks).
-  ws().patchAgent(AGENT.contract, (a) => ({ ...a, config: { ...a.config, data: { ...a.config.data, score_threshold: { ...a.config.data.score_threshold, value: 0.75 } } } }));
-  api.runEvaluation(PACK.contract);
-  const p2 = ws().evalPacks.find((p) => p.id === PACK.contract)!;
-  check('after fix, eval scores 94', p2.last_run?.score === 94, String(p2.last_run?.score));
-  check('grounding cases now pass', p2.cases.filter((c) => c.category === 'grounding' && c.last_result === 'fail').length === 0);
-  check('promotion now unlocked (≥ 90)', (p2.last_run?.score ?? 0) >= 90);
+  check('two grounding cases seeded', pack.cases.filter((c) => c.category === 'grounding').length === 2);
 }
 
 console.log('\n== Provision → tracks ready → LIVE (Incident Coordinator, jobs run synchronously) ==');

@@ -11,11 +11,21 @@ from app.db.connection import close_pool, connect_pool
 from app.db.migrate import run_migrations
 from app.db.seed import seed_if_empty
 from app.env import env
-from app.routes.agents import router as agents_router
-from app.routes.approvals import router as approvals_router
-from app.routes.bootstrap import router as bootstrap_router
-from app.routes.chat import router as chat_router
-from app.services.scheduler import start_scheduler
+from app.domains.a2a.routes import router as a2a_router
+from app.domains.admin.routes import router as admin_router
+from app.domains.agents.routes import router as agents_router
+from app.domains.approvals.routes import router as approvals_router
+from app.domains.bootstrap.routes import router as bootstrap_router
+from app.domains.chat.routes import router as chat_router
+from app.domains.deployment.routes import router as deployment_router
+from app.domains.evaluations.routes import router as evaluations_router
+from app.domains.governance.routes import router as governance_router
+from app.domains.knowledge.routes import router as knowledge_router
+from app.domains.models.routes import router as models_router
+from app.domains.prompts.routes import router as prompts_router
+from app.domains.tools.routes import router as tools_router
+from app.domains.deployment.service import backfill_deployment_state
+from app.domains.scheduler.service import start_scheduler
 
 _ROOT_DIR = Path(__file__).resolve().parents[2]
 
@@ -25,6 +35,7 @@ async def lifespan(app: FastAPI):
     await connect_pool()
     await run_migrations()
     await seed_if_empty()
+    await backfill_deployment_state()
     start_scheduler()
     yield
     await close_pool()
@@ -44,6 +55,15 @@ app.include_router(bootstrap_router)
 app.include_router(agents_router)
 app.include_router(approvals_router)
 app.include_router(chat_router)
+app.include_router(knowledge_router)
+app.include_router(prompts_router)
+app.include_router(tools_router)
+app.include_router(models_router)
+app.include_router(governance_router)
+app.include_router(evaluations_router)
+app.include_router(deployment_router)
+app.include_router(admin_router)
+app.include_router(a2a_router)
 
 if os.environ.get("NODE_ENV") == "production":
     dist_dir = _ROOT_DIR / "dist"

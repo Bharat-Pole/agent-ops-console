@@ -1,10 +1,12 @@
 // Section 5.4 — Other entities (assets that agents reference).
 
 import type { Prov } from './provenance';
-import type { ToolPermission, Sensitivity, SourceApproval, RefreshCadence, TrackStatus } from './agent';
+import type { ToolPermission, Sensitivity, SourceApproval, RefreshCadence, TrackStatus, RiskTier, CapabilityTier } from './agent';
 
 // ---- Prompt Repository ----------------------------------------------------
 export type PromptKind = 'system' | 'safety' | 'citation' | 'template';
+export type PromptCategory = 'agent' | 'tool' | 'mcp' | 'rag'; // which module consumes this prompt
+export type PromptSource = 'manual' | 'llm_generated';
 export type PromptStatus = 'draft' | 'approved' | 'deprecated';
 
 export interface PromptHistoryEntry {
@@ -18,6 +20,9 @@ export interface PromptAsset {
   version: string;
   name: string;
   kind: PromptKind;
+  category: PromptCategory;
+  source: PromptSource;
+  generated_from: string | null; // agent_id or job_id, when source = llm_generated
   body: string;
   status: PromptStatus;
   owner: string;
@@ -33,6 +38,8 @@ export interface ToolSchema {
   outputs: Record<string, string>;
 }
 
+export type ToolRiskLevel = 'low' | 'medium' | 'high';
+
 export interface ToolAsset {
   id: string;
   version: string;
@@ -45,6 +52,12 @@ export interface ToolAsset {
   schema: ToolSchema;
   status: ToolStatus;
   used_by: string[]; // agent_id[]
+  // Real backend fields (routes/tools.py) — optional so seed-era literals
+  // built before the real Tool Registry backend still typecheck.
+  owner?: string | null;
+  risk_level?: ToolRiskLevel;
+  created_at?: string | null;
+  updated_at?: string;
   // Canned fixtures the Playground uses to render a simulated tool result.
   result_fixtures?: string[];
 }
@@ -62,7 +75,10 @@ export interface McpConnector {
   auth_mode: McpAuthMode;
   status: McpStatus;
   tools_provided: string[]; // tool_id[]
-  last_healthcheck: string;
+  last_healthcheck: string | null;
+  last_error?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // ---- Knowledge Sources (the 5.12 group verbatim + entity metadata) --------
@@ -121,14 +137,47 @@ export interface PipelineRun {
   started_at: string;
 }
 
-// ---- A2A Agent Card -------------------------------------------------------
+// ---- Model Repository ------------------------------------------------------
+// Blueprint §3.7 — the approved catalog that G_Model.model_primary /
+// model_fallback (Section 5.3) should be validated against. Today those fields
+// are free-text refs set at synthesis time with nothing enforcing that the
+// value is actually an approved, catalogued model — this repo is that backstop.
+export type ModelRole = 'llm' | 'embedding' | 'eval';
+export type ModelDeployStatus = 'approved' | 'candidate' | 'deprecated';
+
+export interface ModelAsset {
+  id: string; // matches a G_Model.model_primary / model_fallback value, or the real runtime model id
+  name: string;
+  provider: string;
+  roles: ModelRole[]; // a model can serve more than one role, e.g. LLM + eval judge
+  context_window: number;
+  cost_input_per_mtok: number; // USD per 1M input tokens
+  cost_output_per_mtok: number; // USD per 1M output tokens
+  latency_p50_ms: number;
+  approved_use_case: string;
+  risk_tier_mapping: RiskTier[]; // risk tiers this model is cleared for
+  owner: string;
+  deployment_status: ModelDeployStatus;
+  access_policy: string;
+  fallback_of: string | null; // model id this serves as fallback for, if any
+  routing_note: string;
+}
+
+// ---- A2A Agent Card ---------------------------------------------------------
+// Real cards derived server-side from each agent's own persisted config
+// (services/a2a.py), re-synced on every bootstrap so this can never go stale.
 export interface AgentCard {
   agent_id: string;
+  name: string;
+  description: string | null;
   skills: string[];
   input_schema: Record<string, string>;
   output_schema: Record<string, string>;
   endpoint: string;
+  endpoint_overridden: boolean;
   discovery_only: boolean;
   message_task_format: string | null;
-  artifact_exchange: boolean;
+  capability_tier: CapabilityTier;
+  model: string | null;
+  updated_at: string;
 }
