@@ -1,9 +1,27 @@
-node_modules
-dist
-dist-ssr
-*.local
-.vite
-node_modules/.tmp
+# --- dependencies (restore from requirements.txt / package-lock.json) ---
+backend/.venv/
+node_modules/
 
-# internal build spec (not published)
-AGENT_OPS_CONSOLE_MASTER_BUILD_SPEC.md
+# --- build output ---
+dist/
+*.tsbuildinfo
+
+# --- python caches ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- local runtime state, never source of truth ---
+# SQLite databases (platform.db, engine checkpoints, scratch dbs)
+*.db
+*.db-journal
+# uploaded knowledge files
+backend/filestore/
+backend/demo_filestore/
+
+# --- secrets / local config ---
+# Real values come from PLATFORM_* environment variables.
+# backend/app/config.py holds only defaults and IS tracked.
+.env
+.env.*
+!.env.example

@@ -1,0 +1,38 @@
+"""FastAPI server:  uvicorn {{ pkg }}.runtime.server:app --reload
+
+  GET  /health
+  POST /converse   {"message": "...", "thread_id": "default"}
+"""
+from fastapi import FastAPI
+from pydantic import BaseModel
+from langchain_core.messages import HumanMessage
+
+from ..graph import build_graph
+
+app = FastAPI(title={{ agent.name | tojson }})
+_graph = None
+
+
+def _g():
+    global _graph
+    if _graph is None:
+        _graph = build_graph()
+    return _graph
+
+
+class Turn(BaseModel):
+    message: str
+    thread_id: str = "default"
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "agent": {{ agent.slug | tojson }}, "topology": {{ topology | tojson }}}
+
+
+@app.post("/converse")
+def converse(turn: Turn):
+    from .cli import content_to_text
+    config = {"configurable": {"thread_id": turn.thread_id}}
+    result = _g().invoke({"messages": [HumanMessage(content=turn.message)]}, config)
+    return {"reply": content_to_text(result["messages"][-1].content)}

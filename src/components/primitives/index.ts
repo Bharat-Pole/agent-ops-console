@@ -11,3 +11,4 @@ export { Tabs, type TabItem } from './Tabs';
 export { DataTable, type Column, type FilterDef } from './DataTable';
 export { EmptyState } from './EmptyState';
 export { JsonViewer } from './JsonViewer';
+export { ComboBox, type ComboOption } from './ComboBox';

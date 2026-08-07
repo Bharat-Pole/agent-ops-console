@@ -1,0 +1,102 @@
+"""{{ agent.name }} — DAG ({{ 'explicit orchestration.graph' if dag_plan else ('RAG retrieve → generate ⇄ tools' if rag.enabled else 'router-over-tools') }}).
+
+Topology: dag. An explicit StateGraph of named nodes/edges. The generate node
+binds the agent's advisory tools, so a RAG agent can still call e.g. web search.
+"""
+from langgraph.graph import StateGraph, START, END, MessagesState
+from langgraph.prebuilt import ToolNode, tools_condition
+from langchain_core.messages import SystemMessage
+
+from .model import build_model, has_credentials
+from .memory import build_checkpointer
+from .prompts import SYSTEM_PROMPT
+from .tools import ADVISORY_TOOLS
+{% if rag.enabled %}
+from .rag.retriever import get_retriever
+{% endif %}
+
+
+def build_graph(model=None, checkpointer=None):
+    model = model if model is not None else build_model()
+    g = StateGraph(MessagesState)
+{% if dag_plan %}
+    # Built from the console's explicit orchestration.graph (nodes + edges).
+{% if dag_plan.bind_tools %}
+    bound = model.bind_tools(ADVISORY_TOOLS) if ADVISORY_TOOLS else model
+{% else %}
+    bound = model
+{% endif %}
+
+    def _llm(state: MessagesState):
+        return {"messages": [bound.invoke([SystemMessage(content=SYSTEM_PROMPT)] + state["messages"])]}
+{% if dag_plan.has_retrieve %}
+
+    def _retrieve(state: MessagesState):
+        try:
+            docs = get_retriever().invoke(state["messages"][-1].content)
+            ctx = "\n\n".join(getattr(d, "page_content", str(d)) for d in docs)
+        except Exception:
+            ctx = ""
+        return {"messages": [SystemMessage(content="Retrieved context:\n" + ctx)]}
+{% endif %}
+
+{% for nid, ek in dag_plan.nodes %}
+{% if ek == 'tool' %}
+    g.add_node("{{ nid }}", ToolNode(ADVISORY_TOOLS))
+{% elif ek == 'retrieve' %}
+    g.add_node("{{ nid }}", _retrieve)
+{% else %}
+    g.add_node("{{ nid }}", _llm)
+{% endif %}
+{% endfor %}
+    g.add_edge(START, "{{ dag_plan.entry }}")
+{% for src, tgt, cond in dag_plan.edges %}
+{% if cond %}
+    g.add_conditional_edges("{{ src }}", tools_condition, {"tools": "{{ tgt }}", END: END})
+{% else %}
+    g.add_edge("{{ src }}", "{{ tgt }}")
+{% endif %}
+{% endfor %}
+{% for nid in dag_plan.terminals %}
+    g.add_edge("{{ nid }}", END)
+{% endfor %}
+{% else %}
+    bound = model.bind_tools(ADVISORY_TOOLS) if ADVISORY_TOOLS else model
+
+    def generate(state: MessagesState):
+        return {"messages": [bound.invoke([SystemMessage(content=SYSTEM_PROMPT)] + state["messages"])]}
+
+    g.add_node("generate", generate)
+    if ADVISORY_TOOLS:
+        g.add_node("tools", ToolNode(ADVISORY_TOOLS))
+        g.add_conditional_edges("generate", tools_condition)
+        g.add_edge("tools", "generate")
+    else:
+        g.add_edge("generate", END)
+{% if rag.enabled %}
+
+    def retrieve(state: MessagesState):
+        try:
+            docs = get_retriever().invoke(state["messages"][-1].content)
+            ctx = "\n\n".join(getattr(d, "page_content", str(d)) for d in docs)
+        except Exception:
+            ctx = ""
+        return {"messages": [SystemMessage(content="Retrieved context:\n" + ctx)]}
+
+    g.add_node("retrieve", retrieve)
+    g.add_edge(START, "retrieve")
+    g.add_edge("retrieve", "generate")
+{% else %}
+    g.add_edge(START, "generate")
+{% endif %}
+{% endif %}
+
+    return g.compile(
+        checkpointer=checkpointer if checkpointer is not None else build_checkpointer(),
+{% if hitl.interrupt_before %}
+        interrupt_before={{ hitl.interrupt_before | tojson }},
+{% endif %}
+    )
+
+
+graph = build_graph() if has_credentials() else None

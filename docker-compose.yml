@@ -1,0 +1,56 @@
+# Local-first stack (Pass 0 decision): `docker compose up` + a model API key =
+# fully functional platform. Postgres+pgvector is the canonical database; the
+# SQLite default in backend/app/config.py exists only for zero-service dev.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      POSTGRES_DB: platform
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432" # host access for psql/inspection
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  backend:
+    build: ./backend
+    environment:
+      PLATFORM_DATABASE_URL: postgresql+psycopg://platform:platform@db:5432/platform
+      # dev default — set real values in a .env file next to this compose file
+      PLATFORM_SESSION_SECRET: ${PLATFORM_SESSION_SECRET:-dev-only-change-me}
+      PLATFORM_SEED_PASSWORD: ${PLATFORM_SEED_PASSWORD:-changeme!}
+      PLATFORM_FRONTEND_ORIGINS: '["http://localhost:5173","http://127.0.0.1:5173"]'
+    # migrations then seed then serve — the container is self-initializing
+    command: sh -c "alembic upgrade head && python -m app.seed && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /srv/console
+    environment:
+      # Vite dev proxy target for /api (see vite.config.ts) — keeps the browser
+      # same-origin so the httpOnly session cookie works without CORS games.
+      VITE_API_PROXY_TARGET: http://backend:8000
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    volumes:
+      - .:/srv/console
+      # mask host node_modules (Windows binaries) from the Linux container
+      - console_node_modules:/srv/console/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  console_node_modules:

@@ -2,8 +2,8 @@
 // overlay extracted specifics, decompose sub-agents (Advanced), and build the
 // full config via the shared tier-template factory.
 
-import type { Intent, NluResult, Classification, WriteDetection, Synthesis } from './types';
-import type { RiskTier, SubAgent, HitlGate, CapabilityTier, Sensitivity } from '@/types';
+import type { Intent, NluResult, Classification, WriteDetection, Synthesis, ArchitectureRecommendation } from './types';
+import type { RiskTier, SubAgent, HitlGate, CapabilityTier, Sensitivity, OrchestrationPattern } from '@/types';
 import { buildConfig, type ConfigInput } from '@/seed/config-factory';
 
 // Sub-agent pattern library (Advanced). Template-match first; else derive one
@@ -30,7 +30,7 @@ const PATTERN_LIBRARY: { match: RegExp; subs: SubAgent[] }[] = [
   },
 ];
 
-function decomposeSubAgents(intent: Intent, nlu: NluResult): SubAgent[] {
+export function decomposeSubAgents(intent: Intent, nlu: NluResult): SubAgent[] {
   const text = (intent.objective || '').toLowerCase();
   for (const p of PATTERN_LIBRARY) if (p.match.test(text)) return p.subs;
   // fallback — one sub-agent per detected action verb (cap at 4)
@@ -39,12 +39,21 @@ function decomposeSubAgents(intent: Intent, nlu: NluResult): SubAgent[] {
   return verbs.map((v) => ({ name: `${v}_agent`, role: `Handle the "${v}" step.`, prompt_hint: `Perform ${v}; advisory only.`, tools: [] }));
 }
 
-function toolRef(name: string): string {
+export function toolRef(name: string): string {
   return name.startsWith('tools://') ? name : `tools://${name}@v1`;
 }
 
 function kbRef(source: string): string {
   return source.startsWith('kb://') ? source : `kb://${source.replace(/_/g, '-')}@v1`;
+}
+
+// Pattern inference from objective wording (Advanced tier only):
+// parallel language beats sequential language; default is hub (supervisor).
+export function inferPattern(objective: string): OrchestrationPattern {
+  const t = (objective || '').toLowerCase();
+  if (/(in parallel|simultaneous|concurrent|at the same time)/.test(t)) return 'parallel';
+  if (/( then |steps? |stage|first .* then|after that|sequential)/.test(t)) return 'pipeline';
+  return 'hub';
 }
 
 export function synthesize(
@@ -53,6 +62,7 @@ export function synthesize(
   cls: Classification,
   write: WriteDetection,
   risk: RiskTier,
+  rec: ArchitectureRecommendation,
 ): Synthesis {
   const tier: CapabilityTier = cls.proposed_tier;
   const isAdv = tier === 'advanced';
@@ -61,7 +71,9 @@ export function synthesize(
 
   // advisory-only: never bind flagged (write-capable) tools
   const boundToolNames = (intent.tools ?? []).filter((t) => !write.flagged_tools.includes(t)).slice(0, isAdv ? 6 : 3);
-  const subAgents = isAdv ? decomposeSubAgents(intent, nlu) : [];
+  // Architecture recommender (Stage 2b) decides the shape, decomposition, and graph.
+  const subAgents = rec.sub_agents;
+  const pattern = rec.pattern ?? undefined;
 
   const sensitivity: Sensitivity =
     risk === 'critical' ? 'restricted' : risk === 'high' ? 'confidential' : 'internal';
@@ -90,8 +102,11 @@ export function synthesize(
     sensitivity,
     bound_tools: boundToolNames.map(toolRef),
     sub_agents: subAgents,
+    pattern,
+    orchestration_type: rec.orchestration_type,
+    graph: rec.graph,
     hitl_gates: gates,
-    per_sub_agent_prompts: isAdv ? Object.fromEntries(subAgents.map((s) => [s.name, s.prompt_hint])) : null,
+    per_sub_agent_prompts: subAgents.length ? Object.fromEntries(subAgents.map((s) => [s.name, s.prompt_hint])) : null,
     citation_rules: rag ? 'policies://citation-standard-v1' : null,
     cost_label: `${nlu.domain}-ops`,
     a2a_enabled: !rag ? false : true,

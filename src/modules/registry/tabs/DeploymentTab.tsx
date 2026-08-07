@@ -1,10 +1,11 @@
+import { useState } from 'react';
 import type { AgentRecord } from '@/types';
 import { agentId, isLive } from '@/types';
 import { Card, Button } from '@/components/primitives';
-import { ThreeTrackSwimlanes, AssetRefLink } from '@/components/domain';
+import { ThreeTrackSwimlanes, AssetRefLink, ProjectPreview } from '@/components/domain';
 import { useWorkspace } from '@/kernel/store';
-import { api } from '@/kernel/api';
-import { Rocket } from 'lucide-react';
+import { api, type EngineGenerateResponse } from '@/kernel/api';
+import { Rocket, FileCode, Loader2 } from 'lucide-react';
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -21,14 +22,29 @@ export function DeploymentTab({ agent }: { agent: AgentRecord }) {
   const live = isLive(agent);
   const provisioning = jobs.some((j) => (j.kind === 'runtime_provision' || j.kind === 'content_index') && j.entity_id === agentId(agent) && (j.status === 'processing' || j.status === 'queued'));
   const canProvision = agent.tracks.runtime.status === 'not_started' && !live;
+
+  const [genResult, setGenResult] = useState<EngineGenerateResponse | null>(null);
+  const [genOpen, setGenOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const generate = async () => {
+    setGenerating(true);
+    const res = await api.generateProject(agent, 'aistudio');
+    setGenerating(false);
+    if (res) { setGenResult(res); setGenOpen(true); }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Button variant="new" icon={generating ? <Loader2 size={14} className="animate-spin-slow" /> : <FileCode size={14} />} disabled={generating} onClick={generate}>
+          {generating ? 'Generating…' : 'Generate runnable project'}
+        </Button>
         <Button variant="primary" icon={<Rocket size={14} />} disabled={!canProvision || provisioning} onClick={() => api.provision(agentId(agent))}>
           {live ? 'Provisioned' : provisioning ? 'Provisioning…' : 'Provision'}
         </Button>
       </div>
       <ThreeTrackSwimlanes agent={agent} />
+      <ProjectPreview open={genOpen} onClose={() => setGenOpen(false)} result={genResult} />
 
       <div className="grid grid-cols-2 gap-4">
         <Card>

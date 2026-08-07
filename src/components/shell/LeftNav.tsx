@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Plus, PanelLeftClose, PanelLeftOpen, Wand2, FileText, Wrench, Database } from 'lucide-react';
+import { Plus, PanelLeftClose, PanelLeftOpen, Wand2, FileText, Wrench, Plug, Database } from 'lucide-react';
 import { NAV } from '@/nav';
 import { useWorkspace } from '@/kernel/store';
 import { cn } from '@/utils/cn';
@@ -8,8 +8,9 @@ import { cn } from '@/utils/cn';
 const CREATE_MENU = [
   { label: 'New Agent', hint: 'Onboarding wizard', icon: Wand2, to: '/onboarding?new=1' },
   { label: 'New Prompt', hint: 'Prompt Repository', icon: FileText, to: '/prompts?new=1' },
-  { label: 'Register Tool', hint: 'Tool Catalog', icon: Wrench, to: '/tools?new=1' },
-  { label: 'Add Knowledge Source', hint: 'Knowledge & RAG', icon: Database, to: '/knowledge?new=1' },
+  { label: 'Register Tool', hint: 'Tools', icon: Wrench, to: '/tools/new' },
+  { label: 'Register MCP connector', hint: 'MCP Connectors', icon: Plug, to: '/mcp/new' },
+  { label: 'Add Knowledge Source', hint: 'Knowledge', icon: Database, to: '/knowledge/new' },
 ];
 
 export function LeftNav() {

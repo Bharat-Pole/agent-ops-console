@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+dist/
+.pytest_cache/
+*.egg-info/
+# secrets vault — never commit
+.secrets.json
+.secrets-*.tmp

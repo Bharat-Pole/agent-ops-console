@@ -1,14 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search, HelpCircle, RotateCcw, ChevronDown, Check, Download, Upload } from 'lucide-react';
+import { Search, HelpCircle, RotateCcw, ChevronDown, Check, Download, Upload, LogOut } from 'lucide-react';
 import { useWorkspace } from '@/kernel/store';
 import { PERSONA_LIST, PERSONAS } from '@/kernel/constants';
 import { api } from '@/kernel/api';
+import { useAuth } from '@/api/auth';
 import { JobTray } from './JobTray';
 import { cn } from '@/utils/cn';
 
 export function TopBar({ onOpenSearch, onOpenHelp }: { onOpenSearch: () => void; onOpenHelp: () => void }) {
   const persona = useWorkspace((s) => s.ui.persona);
   const setPersona = useWorkspace((s) => s.setPersona);
+  const { me, logout } = useAuth(); // real backend session — personas are display-only
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -56,6 +58,23 @@ export function TopBar({ onOpenSearch, onOpenHelp }: { onOpenSearch: () => void;
 
       <div className="ml-auto flex items-center gap-1">
         <JobTray />
+
+        {/* Real session identity (backend) + logout */}
+        {me && (
+          <div
+            className="mr-1 flex items-center gap-2 rounded-control border border-border bg-canvas px-2 py-1"
+            title={`Roles: ${me.roles.join(', ') || 'none'}`}
+          >
+            <span className="text-[12px] text-text-hi">{me.email}</span>
+            <button
+              onClick={() => void logout()}
+              title="Sign out"
+              className="rounded p-0.5 text-text-mid hover:bg-raised hover:text-text-hi"
+            >
+              <LogOut size={13} />
+            </button>
+          </div>
+        )}
 
         <button
           onClick={() => api.reset()}

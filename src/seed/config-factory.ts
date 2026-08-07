@@ -10,8 +10,10 @@ import type {
   RetrievalType,
   ToolPermission,
   OrchestrationType,
+  OrchestrationPattern,
   SubAgent,
   HitlGate,
+  GraphSpec,
   Sensitivity,
   Prov,
 } from '@/types';
@@ -64,6 +66,9 @@ export interface ConfigInput {
   mcp_connectors?: string[];
 
   sub_agents?: SubAgent[];
+  pattern?: OrchestrationPattern;
+  orchestration_type?: OrchestrationType; // architecture recommender output; defaults to tier-derived
+  graph?: GraphSpec | null; // explicit renderable graph (nodes+edges)
   hitl_gates?: HitlGate[];
   per_sub_agent_prompts?: Record<string, string> | null;
 
@@ -103,7 +108,9 @@ export function buildConfig(inp: ConfigInput): AgentConfig {
       : 'vertex://gemini-1.5-flash';
   const modelFallback = isMin ? null : 'vertex://gemini-1.5-pro';
   const runtimeHost = isAdv ? 'GKE' : 'Cloud Run';
-  const orchestration: OrchestrationType = isAdv ? 'coordinator+subagents' : 'single';
+  // Architecture recommender decides this; fall back to the tier-derived default
+  // when no recommendation is supplied (e.g. legacy seed callers).
+  const orchestration: OrchestrationType = inp.orchestration_type ?? (isAdv ? 'coordinator+subagents' : 'single');
   const retrieval: RetrievalType | null = rag ? 'hybrid' : null;
 
   const toolPerm: ToolPermission = 'read'; // advisory base scope, LOCKED
@@ -180,11 +187,15 @@ export function buildConfig(inp: ConfigInput): AgentConfig {
       mcp_connectors: inp.mcp_connectors?.length ? u(inp.mcp_connectors) : d<string[]>([]),
       tool_auth: inp.mcp_connectors?.length ? s<string | null>('secret_manager') : d<string | null>(null),
       rate_limits: rag ? d<string | null>('60/min') : d<string | null>(null),
+      // present from birth so "Propose change" can patch it (vault bindings live here)
+      secret_refs: d<Record<string, string>>({}),
     },
     // 5.7 Orchestration
     orchestration: {
       orchestration_type: i(orchestration),
-      sub_agents: isAdv && inp.sub_agents?.length ? g<SubAgent[]>(inp.sub_agents, 'Auto-decomposed from objective. Confirm ownership.') : d<SubAgent[]>([]),
+      pattern: inp.pattern ? i(inp.pattern) : d<OrchestrationPattern>('hub'),
+      sub_agents: inp.sub_agents?.length ? g<SubAgent[]>(inp.sub_agents, 'Auto-decomposed from objective. Confirm ownership.') : d<SubAgent[]>([]),
+      graph: inp.graph ? g<GraphSpec | null>(inp.graph, 'Auto-generated from recommended architecture. Confirm.') : d<GraphSpec | null>(null),
       retries: d(isAdv ? 2 : 1),
       fallback_behavior: d(isMin ? 'return_error' : 'graceful_degrade'),
       hitl_gate_placement: inp.hitl_gates?.length ? i<HitlGate[]>(inp.hitl_gates) : d<HitlGate[]>([]),

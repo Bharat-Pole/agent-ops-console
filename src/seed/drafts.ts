@@ -32,6 +32,7 @@ function vendorDraft(): OnboardingDraft {
     synthesis,
     confirmedTier: synthesis.capability_tier,
     confirmedRisk: synthesis.risk_tier,
+    confirmedArchitecture: synthesis.architecture,
     workPackage: wp,
     elicitationAnswers: {},
     governance: { sensitivity: '', regulatory: '' },

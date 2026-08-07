@@ -4,8 +4,8 @@ import { TagInput } from '../TagInput';
 import type { PhaseProps } from '../WizardPage';
 import { useWorkspace } from '@/kernel/store';
 import { api } from '@/kernel/api';
-import { applyTierOverride } from '@/kernel/engine';
-import type { CapabilityTier } from '@/types';
+import { applyTierOverride, applyArchitectureOverride } from '@/kernel/engine';
+import type { CapabilityTier, Architecture } from '@/types';
 import { Loader2, Sparkles, ArrowRight } from 'lucide-react';
 
 function Label({ children }: { children: React.ReactNode }) {
@@ -29,6 +29,16 @@ export function Phase1Intent({ draft, patch, goPhase }: PhaseProps) {
     const res = applyTierOverride(draft.intent, tier);
     if (res.accepted && res.result) {
       patch((d) => ({ ...d, synthesis: res.result!, confirmedTier: res.result!.capability_tier, confirmedRisk: res.result!.risk_tier }));
+      pushToast('ok', res.note);
+    } else {
+      pushToast('warn', res.note);
+    }
+  };
+
+  const overrideArch = (a: Architecture) => {
+    const res = applyArchitectureOverride(draft.intent, a);
+    if (res.accepted && res.result) {
+      patch((d) => ({ ...d, synthesis: res.result!, confirmedArchitecture: res.result!.architecture }));
       pushToast('ok', res.note);
     } else {
       pushToast('warn', res.note);
@@ -87,8 +97,11 @@ export function Phase1Intent({ draft, patch, goPhase }: PhaseProps) {
           <>
             <ReviewCard
               card={draft.synthesis.review_card}
+              architecture={draft.synthesis.trace.stage2b_architecture}
+              recommending={draft.archRecommending}
               onConfirm={() => goPhase(2)}
               onOverrideTier={override}
+              onOverrideArchitecture={overrideArch}
               onEdit={() => patch((d) => ({ ...d, synthesis: null }))}
               confirmLabel="Confirm & continue →"
             />

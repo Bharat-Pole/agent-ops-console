@@ -9,7 +9,10 @@ import {
   MessagesSquare,
   FileText,
   Wrench,
+  Plug,
   Database,
+  Boxes,
+  KeyRound,
   Share2,
   ShieldCheck,
   ClipboardCheck,
@@ -46,10 +49,13 @@ export const NAV: NavGroup[] = [
   {
     label: 'ASSETS',
     items: [
+      { label: 'Tools', to: '/tools', icon: Wrench, match: ['/tools'] },
+      { label: 'MCP Connectors', to: '/mcp', icon: Plug, match: ['/mcp'] },
+      { label: 'Knowledge', to: '/knowledge', icon: Database, match: ['/knowledge'] },
+      { label: 'RAG & Indexes', to: '/rag', icon: Boxes },
       { label: 'Prompt Repository', to: '/prompts', icon: FileText },
-      { label: 'Tools & MCP', to: '/tools', icon: Wrench },
-      { label: 'Knowledge & RAG', to: '/knowledge', icon: Database },
       { label: 'A2A Directory', to: '/a2a', icon: Share2 },
+      { label: 'API Keys', to: '/secrets', icon: KeyRound },
     ],
   },
   {

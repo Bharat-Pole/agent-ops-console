@@ -2,30 +2,37 @@
 // and returns a SynthesisResult carrying the full config, review card, elicitation
 // questions, and the per-stage engine trace (shown in the wizard's trace panel).
 
-import type { Intent, SynthesisResult, Classification, EngineTrace } from './types';
-import type { CapabilityTier } from '@/types';
+import type { Intent, SynthesisResult, Classification, EngineTrace, ArchitectureRecommendation } from './types';
+import type { CapabilityTier, Architecture } from '@/types';
 import { detectNlu } from './nlu';
 import { classify } from './signals';
 import { detectWriteActions } from './writeDetect';
 import { inferRisk } from './risk';
-import { synthesize as synthArch } from './templates';
+import { synthesize as synthArch, toolRef } from './templates';
 import { assessConfidence } from './confidence';
 import { elicit } from './elicitation';
 import { buildReviewCard } from './reviewCard';
 import { pickArchetypeForTier } from './archetype';
+import { deriveBaselineArchitecture, buildRecommendation, validateArchitecture, recommendationFromLlm } from './architecture';
+import type { LlmArchitectureProposal } from './architecture';
 
 export * from './types';
 export { WEIGHTS, BASE_MINIMAL, SIGNAL_LABEL, ARCHETYPE_LABEL } from './weights';
+export { ARCHITECTURES, ARCHITECTURE_LABEL, deriveBaselineArchitecture, validateArchitecture, synthesizeGraphSpec, recommendationFromLlm } from './architecture';
+export type { LlmArchitectureProposal } from './architecture';
 
 const TIER_INDEX: Record<CapabilityTier, number> = { minimal: 0, standardized: 1, advanced: 2 };
 
-function assemble(intent: Intent, cls: Classification): SynthesisResult {
+function assemble(intent: Intent, cls: Classification, recOverride?: ArchitectureRecommendation): SynthesisResult {
   const nlu = detectNlu(intent);
   const write = detectWriteActions(intent);
   const riskRes = inferRisk(intent, write);
   const risk = riskRes.risk_tier;
 
-  const synth = synthArch(intent, nlu, cls, write, risk);
+  // Stage 2b — architecture recommendation (deterministic baseline unless an
+  // already-validated recommendation is supplied, e.g. a user override).
+  const rec = recOverride ?? deriveBaselineArchitecture(intent, nlu, cls);
+  const synth = synthArch(intent, nlu, cls, write, risk, rec);
   const conf = assessConfidence(cls, write, risk, cls.proposed_tier);
   const elicitation = elicit(intent, nlu, cls, write, risk);
   const reviewCard = buildReviewCard(cls, synth, write, conf, risk, riskRes.why);
@@ -33,6 +40,7 @@ function assemble(intent: Intent, cls: Classification): SynthesisResult {
   const trace: EngineTrace = {
     stage1_nlu: nlu,
     stage2_classification: cls,
+    stage2b_architecture: rec,
     stage3_synthesis: {
       summary: {
         model: synth.config.model.model_primary.value,
@@ -56,6 +64,7 @@ function assemble(intent: Intent, cls: Classification): SynthesisResult {
     risk_tier: risk,
     capability_tier: cls.proposed_tier,
     archetype: cls.proposed_archetype,
+    architecture: rec.architecture,
     elicitation,
     flagged_write_tools: write.flagged_tools,
     trace,
@@ -107,4 +116,45 @@ export function applyTierOverride(intent: Intent, desired: CapabilityTier): Tier
     reasoning: [...engineCls.reasoning, `USER OVERRIDE: lowered tier ${engineTier} → ${desired} (re-evaluated, conceded)`],
   };
   return { accepted: true, note: `Lowered to ${desired} after re-evaluation.`, result: assemble(intent, cls) };
+}
+
+export interface ArchitectureOverrideResult {
+  accepted: boolean;
+  note: string;
+  result?: SynthesisResult;
+}
+
+// Architecture override — mirrors applyTierOverride. Builds the desired shape,
+// re-validates it against the hard gates + advisory rules, and either re-synthesizes
+// or refuses with the first violation. Tier is left untouched.
+export function applyArchitectureOverride(intent: Intent, desired: Architecture): ArchitectureOverrideResult {
+  const nlu = detectNlu(intent);
+  const cls = classify(intent, nlu);
+  const write = detectWriteActions(intent);
+  const boundTools = (intent.tools ?? []).filter((t) => !write.flagged_tools.includes(t)).map(toolRef);
+
+  const candidate = buildRecommendation(desired, intent, nlu, cls, 'deterministic', [
+    `USER OVERRIDE: architecture → ${desired}`,
+  ]);
+  const check = validateArchitecture(candidate, cls, boundTools);
+  if (!check.ok) {
+    return { accepted: false, note: check.violations[0] ?? `Cannot switch to ${desired}.` };
+  }
+  return { accepted: true, note: `Architecture set to ${desired}.`, result: assemble(intent, cls, candidate) };
+}
+
+// Apply an LLM recommender's proposal (LLM-first mechanism). Re-validates the
+// proposal deterministically; on any validation failure the caller keeps the
+// deterministic baseline. Never trusts the LLM blindly.
+export function applyLlmRecommendation(intent: Intent, llm: LlmArchitectureProposal): ArchitectureOverrideResult {
+  const nlu = detectNlu(intent);
+  const cls = classify(intent, nlu);
+  const write = detectWriteActions(intent);
+  const boundTools = (intent.tools ?? []).filter((t) => !write.flagged_tools.includes(t)).map(toolRef);
+
+  const rec = recommendationFromLlm(intent, nlu, cls, boundTools, llm);
+  if (!rec) {
+    return { accepted: false, note: `LLM architecture "${llm.architecture}" failed validation — keeping rule-based default.` };
+  }
+  return { accepted: true, note: `Architecture recommended: ${rec.architecture}.`, result: assemble(intent, cls, rec) };
 }

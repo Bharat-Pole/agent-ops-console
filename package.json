@@ -8,9 +8,10 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "test": "tsx test/smoke.ts && tsx test/engine.ts && tsx test/playground.ts && tsx test/causality.ts"
+    "test": "tsx test/smoke.ts && tsx test/engine.ts && tsx test/architecture.ts && tsx test/playground.ts && tsx test/causality.ts"
   },
   "dependencies": {
+    "@xyflow/react": "^12.11.2",
     "lucide-react": "^0.462.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

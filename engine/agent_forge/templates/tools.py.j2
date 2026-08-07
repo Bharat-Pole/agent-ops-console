@@ -1,0 +1,59 @@
+"""Tools for {{ agent.name }}.
+
+Advisory-only scope is LOCKED: only read/summarize/draft/recommend/validate tools
+are bound (ADVISORY_TOOLS). Write-capable tools are emitted DISABLED below — defined
+but intentionally NOT in ADVISORY_TOOLS — and raise on call. Read-tool bodies are
+stubs; replace them with real integrations.
+"""
+from langchain_core.tools import tool
+
+{% for t in tools %}
+{% if t.capability == 'http_api' and t.http and t.http.method == 'GET' %}
+@tool
+def {{ t.func }}(query: str = "") -> str:
+    """{{ t.name }} ({{ t.ref }}) - live HTTP GET call."""
+    import os, re, httpx
+    url = re.sub(r"\{[^}]+\}", query or "", {{ t.http.url_template | tojson }})
+    params = { {% for k, v in t.http.query_params.items() %}{{ k | tojson }}: re.sub(r"\{[^}]+\}", query or "", {{ v | tojson }}), {% endfor %} }
+    headers = {{ t.http.headers | tojson }}
+{% if t.http.auth_secret_ref %}
+    secret = os.getenv({{ t.http.auth_secret_ref | tojson }})
+    if secret:
+        headers["Authorization"] = f"Bearer {secret}"
+{% endif %}
+    r = httpx.request("GET", url, params=params, headers=headers, timeout=15)
+    return r.text[:4000]
+
+{% elif t.capability == 'web_search' %}
+@tool
+def {{ t.func }}(query: str = "") -> str:
+    """{{ t.name }} ({{ t.ref }}) - live web search via DuckDuckGo (no API key)."""
+    from ddgs import DDGS
+    results = list(DDGS().text(query or "", max_results=5))
+    if not results:
+        return "No results."
+    return "\n\n".join(f"- {r.get('title','')}\n  {r.get('body','')}\n  {r.get('href','')}" for r in results)
+
+{% else %}
+@tool
+def {{ t.func }}(query: str = "") -> str:
+    """{{ t.permission }} - {{ t.name }} ({{ t.ref }}) - advisory/read-only. Replace with a real integration."""
+    return f"[stub:{{ t.func }}] this tool is not connected to a real integration — no live result is available (query={query!r})"
+
+{% endif %}
+{% endfor %}
+# Advisory (read-scope) tools bound to the agent:
+ADVISORY_TOOLS = [{% for t in tools %}{{ t.func }}{% if not loop.last %}, {% endif %}{% endfor %}]
+
+{% for t in disabled_tools %}
+def {{ t.func }}(*args, **kwargs):  # DISABLED - {{ t.reason }}
+    """DISABLED - write-capable ({{ t.name }} / {{ t.ref }}). Advisory-only scope is LOCKED;
+    this is intentionally NOT in ADVISORY_TOOLS. Enable only behind a human-in-the-loop
+    gate after governance approval."""
+    raise PermissionError(
+        "{{ t.name }} is write-capable and was NOT bound (advisory-only). Requires HITL."
+    )
+
+{% endfor %}
+# Names flagged write-capable and intentionally excluded from ADVISORY_TOOLS:
+DISABLED_WRITE_TOOLS = [{% for t in disabled_tools %}{{ t.func | tojson }}{% if not loop.last %}, {% endif %}{% endfor %}]

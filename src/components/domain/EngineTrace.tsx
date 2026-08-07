@@ -8,6 +8,7 @@ import { ChevronDown, ChevronRight, Cpu } from 'lucide-react';
 const STAGES: { key: keyof EngineTraceT; label: string }[] = [
   { key: 'stage1_nlu', label: 'Stage 1 — Intake & Normalize' },
   { key: 'stage2_classification', label: 'Stage 2 — Archetype classification (raw scores)' },
+  { key: 'stage2b_architecture', label: 'Stage 2b — Architecture recommendation' },
   { key: 'stage3_synthesis', label: 'Stage 3 — Architecture synthesis' },
   { key: 'stage3b_writeDetect', label: 'Stage 3b — Write-action detection' },
   { key: 'stage4_confidence', label: 'Stage 4 — Confidence & provenance' },

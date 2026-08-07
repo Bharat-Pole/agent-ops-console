@@ -1,29 +1,38 @@
 import { useState } from 'react';
-import type { ReviewCard as ReviewCardT, CapabilityTier } from '@/types';
+import type { ReviewCard as ReviewCardT, CapabilityTier, Architecture } from '@/types';
+import type { ArchitectureRecommendation } from '@/kernel/engine';
 import { Card, Button, Badge, TierBadge, RiskBadge } from '@/components/primitives';
 import { SignalTable } from './SignalTable';
 import { ARCHETYPE_LABEL } from '@/kernel/engine/weights';
+import { ARCHITECTURES, ARCHITECTURE_LABEL } from '@/kernel/engine';
 import { TIER_ORDER, PATH_DEFS } from '@/kernel/constants';
 import { titleCase } from '@/utils/format';
-import { Bot, AlertTriangle, ChevronDown, ChevronRight, Scale } from 'lucide-react';
+import { Bot, AlertTriangle, ChevronDown, ChevronRight, Scale, Loader2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 // Section 3.3 / 7.7 — renders the engine's review card. Used as the Phase 1
 // proposal and the Phase 3 review. Actions: [Confirm] [Change Tier] [Edit].
 export function ReviewCard({
   card,
+  architecture,
+  recommending = false,
   onConfirm,
   onOverrideTier,
+  onOverrideArchitecture,
   onEdit,
   confirmLabel = 'Confirm',
 }: {
   card: ReviewCardT;
+  architecture?: ArchitectureRecommendation;
+  recommending?: boolean;
   onConfirm?: () => void;
   onOverrideTier?: (tier: CapabilityTier) => void;
+  onOverrideArchitecture?: (a: Architecture) => void;
   onEdit?: () => void;
   confirmLabel?: string;
 }) {
   const [showTier, setShowTier] = useState(false);
+  const [showArch, setShowArch] = useState(false);
   const [showWhy, setShowWhy] = useState(false);
   const g = card.governance_summary;
 
@@ -87,6 +96,24 @@ export function ReviewCard({
         </div>
       </div>
 
+      {/* architecture recommendation (Stage 2b) */}
+      {architecture && (
+        <div className="mb-3 rounded-control border border-border bg-raised/30 p-3 text-[12px]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-text-low">Architecture</span>
+            <span className="font-semibold text-text-hi">{ARCHITECTURE_LABEL[architecture.architecture]}</span>
+            <span className="rounded bg-accent/15 px-1 text-[9px] font-semibold uppercase text-accent">{architecture.confidence}</span>
+            <span className="text-text-low">· {architecture.source === 'llm' ? 'LLM-recommended' : 'rule-based'}</span>
+            {recommending && (
+              <span className="flex items-center gap-1 text-text-low"><Loader2 size={12} className="animate-spin-slow" /> recommending…</span>
+            )}
+          </div>
+          {architecture.rationale.length > 0 && (
+            <div className="mt-1 text-text-mid">{architecture.rationale[0]}</div>
+          )}
+        </div>
+      )}
+
       {/* governance line */}
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-control border border-border bg-raised/30 px-3 py-2 text-[12px]">
         <span className="text-text-low">Risk</span>
@@ -149,6 +176,20 @@ export function ReviewCard({
                 {TIER_ORDER.map((t) => (
                   <button key={t} onClick={() => { setShowTier(false); onOverrideTier(t); }} className="block w-full px-3 py-2 text-left text-[13px] capitalize text-text-hi hover:bg-surface">
                     {t}{t === card.proposed_tier ? ' (current)' : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {onOverrideArchitecture && architecture && (
+          <div className="relative">
+            <Button variant="outline" icon={<ChevronDown size={13} />} onClick={() => setShowArch((v) => !v)}>Change architecture</Button>
+            {showArch && (
+              <div className="absolute left-0 z-40 mt-1 w-52 overflow-hidden rounded-card border border-border-strong bg-raised shadow-2xl">
+                {ARCHITECTURES.map((a) => (
+                  <button key={a} onClick={() => { setShowArch(false); onOverrideArchitecture(a); }} className="block w-full px-3 py-2 text-left text-[13px] text-text-hi hover:bg-surface">
+                    {ARCHITECTURE_LABEL[a]}{a === architecture.architecture ? ' (current)' : ''}
                   </button>
                 ))}
               </div>

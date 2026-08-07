@@ -1,0 +1,733 @@
+{
+  "config": {
+    "identity": {
+      "agent_name": {
+        "value": "HR Policy Bot",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "agent_id": {
+        "value": "agt-hr-policy-bot-20260115-a1f3",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "business_owner": {
+        "value": "dana.hr@brightspeed.com",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "technical_owner": {
+        "value": "raj.patel@brightspeed.com",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "executive_sponsor": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "use_case_category": {
+        "value": "HR",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      },
+      "consumer_type": {
+        "value": "employees",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "intended_audience": {
+        "value": "All Brightspeed employees",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "description": {
+        "value": "A simple advisor that answers HR policy and benefits questions in plain language.",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "objective": {
+        "value": "Answer employee questions about company HR policies and benefits in plain language.",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "lifecycle": {
+      "lifecycle_status": {
+        "value": "live",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "risk_tier": {
+        "value": "low",
+        "value_source": "inferred",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "last_review_date": {
+        "value": "2026-05-05",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "next_review_date": {
+        "value": "2026-08-03",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "exception_status": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "model": {
+      "model_primary": {
+        "value": "vertex://gemini-1.5-flash",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "model_fallback": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "temperature": {
+        "value": 0.2,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "max_output_tokens": {
+        "value": 2048,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "context_window_ref": {
+        "value": "32k",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "cost_awareness": {
+        "value": "moderate",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      }
+    },
+    "prompt": {
+      "system_prompt_ref": {
+        "value": "prompts://hr-safety-v2.1@v2.1",
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "user_prompt_template": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "task_prompt": {
+        "value": "Perform: Answer employee questions about company HR policies and benefits in plain language.",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Derived from objective — refine before production."
+      },
+      "persona_role": {
+        "value": "HR assistant",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      },
+      "tool_use_instructions": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "safety_instructions": {
+        "value": "prompts://hr-safety-v2.1@v2.1",
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "citation_rules": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "response_format_contract": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "stop_conditions": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "per_sub_agent_prompts": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "data": {
+      "data_sources": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "rag_enabled": {
+        "value": false,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "retrieval_type": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "chunk_size": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "chunk_overlap": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "top_k": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "score_threshold": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "knowledge_source_refs": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "structured_grounding": {
+        "value": false,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "tooling": {
+      "bound_tools": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "tool_permission": {
+        "value": "read",
+        "value_source": "inferred",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "mcp_connectors": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "tool_auth": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "rate_limits": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "orchestration": {
+      "orchestration_type": {
+        "value": "single",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      },
+      "sub_agents": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "retries": {
+        "value": 1,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "fallback_behavior": {
+        "value": "return_error",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "hitl_gate_placement": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "a2a_enabled": {
+        "value": false,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "agent_card": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "message_task_format": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "artifact_exchange": {
+        "value": false,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "governance": {
+      "approvals_required": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "audit_level": {
+        "value": "standard",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "policy_controls": {
+        "value": [
+          "policies://advisory-scope-v1"
+        ],
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "observability": {
+      "cost_label": {
+        "value": "hr-ops",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "logging_level": {
+        "value": "info",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "required_telemetry": {
+        "value": [
+          "requests",
+          "tokens",
+          "p95_latency",
+          "errors"
+        ],
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "deployment": {
+      "exposure_channel": {
+        "value": "internal-api",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      },
+      "auth_gating": {
+        "value": "sso-required",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "deploy_rate_limits": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "environment": {
+        "value": "production",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "promotion_rollback": {
+        "value": "blue-green",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "runtime": {
+      "runtime_host": {
+        "value": "Cloud Run",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "resolver_profile": {
+        "value": "minimal-resolver-v1",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "concurrency": {
+        "value": 2,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "timeout": {
+        "value": 30,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "scaling_policy": {
+        "value": "auto:0-4",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "model_gateway_ref": {
+        "value": "vertex://gemini-1.5-flash",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "knowledge_sources": {
+      "source_uri": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "parser": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "source_chunking": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "embedding_model": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "index_target": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "sensitivity": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "source_approval": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "refresh_cadence": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "source_version": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "evidence": {
+      "evidence_store_uri": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "evidence_retention": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "artifact_links": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    }
+  },
+  "capability_tier": "minimal",
+  "governance_path": "fast",
+  "tracks": {
+    "registry": {
+      "status": "ready",
+      "steps": [
+        {
+          "name": "Schema validated",
+          "status": "ready",
+          "at": "2026-05-05T10:00:00Z"
+        },
+        {
+          "name": "Registered",
+          "status": "ready",
+          "at": "2026-05-05T10:00:00Z"
+        },
+        {
+          "name": "Approvals granted",
+          "status": "ready",
+          "at": "2026-05-05T10:00:00Z"
+        }
+      ]
+    },
+    "runtime": {
+      "status": "ready",
+      "steps": [
+        {
+          "name": "Resolver profile",
+          "status": "ready",
+          "at": "2026-05-05T11:00:00Z"
+        },
+        {
+          "name": "Runtime host",
+          "status": "ready",
+          "at": "2026-05-05T11:00:00Z"
+        },
+        {
+          "name": "Model gateway",
+          "status": "ready",
+          "at": "2026-05-05T11:00:00Z"
+        },
+        {
+          "name": "MCP sidecars",
+          "status": "ready",
+          "at": "2026-05-05T11:00:00Z"
+        },
+        {
+          "name": "Telemetry sink",
+          "status": "ready",
+          "at": "2026-05-05T11:00:00Z"
+        }
+      ]
+    },
+    "content": {
+      "status": "ready",
+      "steps": [
+        {
+          "name": "No knowledge sources",
+          "status": "ready",
+          "at": "2026-05-05T11:00:00Z"
+        }
+      ]
+    }
+  },
+  "signal_breakdown": {
+    "S1": {
+      "fired": false,
+      "why": "no retrieval need cue",
+      "weight_minimal": 0,
+      "weight_standardized": 10,
+      "weight_advanced": 5
+    },
+    "S2": {
+      "fired": false,
+      "why": "no multi-skill cue",
+      "weight_minimal": 0,
+      "weight_standardized": 3,
+      "weight_advanced": 10
+    },
+    "S3": {
+      "fired": false,
+      "why": "no cross-system cue",
+      "weight_minimal": 0,
+      "weight_standardized": 5,
+      "weight_advanced": 10
+    },
+    "S4": {
+      "fired": false,
+      "why": "no tool actions cue",
+      "weight_minimal": 5,
+      "weight_standardized": 5,
+      "weight_advanced": 5
+    },
+    "S5": {
+      "fired": false,
+      "why": "no hand-off / routing cue",
+      "weight_minimal": 0,
+      "weight_standardized": 2,
+      "weight_advanced": 10
+    },
+    "S6": {
+      "fired": false,
+      "why": "no explicit multi-agent cue",
+      "weight_minimal": 0,
+      "weight_standardized": 0,
+      "weight_advanced": 15
+    }
+  },
+  "review_card": null,
+  "evaluation_pack_id": "pack-hr-policy-bot",
+  "approval_ids": [],
+  "fast_path_expiry_date": "2026-08-03",
+  "created_at": "2026-01-15T09:00:00Z",
+  "updated_at": "2026-07-26T14:00:00Z",
+  "demo_mode": false
+}

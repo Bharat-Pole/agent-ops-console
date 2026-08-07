@@ -1,0 +1,26 @@
+"""{{ agent.name }} — SINGLE dynamic agent (ReAct tool loop).
+
+Topology: single. The agent decides which advisory tools to call, adaptively.
+"""
+from langgraph.prebuilt import create_react_agent
+
+from .model import build_model, has_credentials
+from .memory import build_checkpointer
+from .prompts import SYSTEM_PROMPT
+from .tools import ADVISORY_TOOLS
+
+
+def build_graph(model=None, checkpointer=None):
+    """Build the compiled ReAct agent. Pass model=FakeChatModel() to compile without a key."""
+    model = model if model is not None else build_model()
+    return create_react_agent(
+        model,
+        tools=ADVISORY_TOOLS,
+        prompt=SYSTEM_PROMPT,
+        checkpointer=checkpointer if checkpointer is not None else build_checkpointer(),
+    )
+
+
+# Module-level golden instance — only built when credentials are present so that
+# importing this module (e.g. in tests) never requires an API key.
+graph = build_graph() if has_credentials() else None

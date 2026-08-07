@@ -1,0 +1,19 @@
+"""Advisory-only guardrail — write-capable tools are never bound."""
+import pytest
+
+from {{ pkg }} import tools as T
+
+
+def test_no_write_tool_is_bound():
+    bound = {getattr(t, "name", getattr(t, "__name__", "")) for t in T.ADVISORY_TOOLS}
+    for name in T.DISABLED_WRITE_TOOLS:
+        assert name not in bound, f"write-capable tool {name!r} must not be bound"
+
+
+{% if disabled_tools %}
+@pytest.mark.parametrize("name", T.DISABLED_WRITE_TOOLS if False else {{ (disabled_tools | map(attribute='name') | list) | tojson }})
+def test_disabled_write_tools_raise(name):
+    fn = getattr(T, name)
+    with pytest.raises(PermissionError):
+        fn()
+{% endif %}

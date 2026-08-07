@@ -5,11 +5,15 @@ import type {
   CapabilityTier,
   RiskTier,
   Archetype,
+  Architecture,
   SignalBreakdown,
   TierScores,
   AgentConfig,
   ReviewCard,
   SubAgent,
+  GraphSpec,
+  OrchestrationType,
+  OrchestrationPattern,
   FieldConfirmation,
 } from '@/types';
 
@@ -51,6 +55,27 @@ export interface Classification {
   tool_count: number;
 }
 
+// Stage 2b — Architecture recommendation. Selects one of the generatable
+// architecture shapes and the concrete graph the generator will render. The
+// deterministic baseline is the offline fallback and the validator for any
+// LLM-supplied recommendation (source: 'llm').
+export interface ArchitectureRecommendation {
+  architecture: Architecture;
+  orchestration_type: OrchestrationType;
+  pattern: OrchestrationPattern | null;
+  sub_agents: SubAgent[];
+  graph: GraphSpec | null;
+  rationale: string[];
+  confidence: 'high' | 'medium' | 'low';
+  source: 'llm' | 'deterministic';
+}
+
+// Result of validating a recommendation against the hard gates + advisory rules.
+export interface ArchitectureValidation {
+  ok: boolean;
+  violations: string[];
+}
+
 // Stage 3 — Architecture synthesis
 export interface Synthesis {
   config: AgentConfig;
@@ -86,6 +111,7 @@ export interface Elicitation {
 export interface EngineTrace {
   stage1_nlu: NluResult;
   stage2_classification: Classification;
+  stage2b_architecture: ArchitectureRecommendation;
   stage3_synthesis: { summary: Record<string, unknown>; sub_agents: SubAgent[] };
   stage3b_writeDetect: WriteDetection;
   stage4_confidence: ConfidenceResult;
@@ -101,6 +127,7 @@ export interface SynthesisResult {
   risk_tier: RiskTier;
   capability_tier: CapabilityTier;
   archetype: Archetype;
+  architecture: Architecture; // recommended orchestration shape (Stage 2b)
   elicitation: Elicitation;
   flagged_write_tools: string[];
   trace: EngineTrace;

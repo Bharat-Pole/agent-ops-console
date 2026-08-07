@@ -79,14 +79,16 @@ export const SCHEMA_GROUPS: SchemaGroupMeta[] = [
   {
     key: 'tooling',
     label: '5.6 Tooling & MCP',
-    fields: ['bound_tools', 'tool_permission', 'mcp_connectors', 'tool_auth', 'rate_limits'],
+    fields: ['bound_tools', 'tool_permission', 'mcp_connectors', 'tool_auth', 'rate_limits', 'secret_refs'],
   },
   {
     key: 'orchestration',
     label: '5.7 Orchestration',
     fields: [
       'orchestration_type',
+      'pattern',
       'sub_agents',
+      'graph',
       'retries',
       'fallback_behavior',
       'hitl_gate_placement',

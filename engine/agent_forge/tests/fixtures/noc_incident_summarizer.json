@@ -1,0 +1,778 @@
+{
+  "config": {
+    "identity": {
+      "agent_name": {
+        "value": "NOC Incident Summarizer",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "agent_id": {
+        "value": "agt-noc-incident-summarizer-20260122-b2e7",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "business_owner": {
+        "value": "sarah.chen@brightspeed.com",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "technical_owner": {
+        "value": "marcus.dev@brightspeed.com",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "executive_sponsor": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "use_case_category": {
+        "value": "network_ops",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      },
+      "consumer_type": {
+        "value": "NOC team",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "intended_audience": {
+        "value": "Network Operations Center analysts",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "description": {
+        "value": "Summarizes weekly incident reports and flags critical incidents, grounded in the incident DB.",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "objective": {
+        "value": "Summarize weekly incident reports for the NOC team and flag critical ones, grounded in the incident database.",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "lifecycle": {
+      "lifecycle_status": {
+        "value": "live",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "risk_tier": {
+        "value": "medium",
+        "value_source": "inferred",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "last_review_date": {
+        "value": "2026-06-28",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "next_review_date": {
+        "value": "2026-09-26",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "exception_status": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "model": {
+      "model_primary": {
+        "value": "vertex://gemini-1.5-flash",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "model_fallback": {
+        "value": "vertex://gemini-1.5-pro",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "temperature": {
+        "value": 0.2,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "max_output_tokens": {
+        "value": 2048,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "context_window_ref": {
+        "value": "128k",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "cost_awareness": {
+        "value": "moderate",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      }
+    },
+    "prompt": {
+      "system_prompt_ref": {
+        "value": "prompts://noc-summarizer@v2",
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "user_prompt_template": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "task_prompt": {
+        "value": "Perform: Summarize weekly incident reports for the NOC team and flag critical ones, grounded in the incident database.",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Derived from objective — refine before production."
+      },
+      "persona_role": {
+        "value": "network_ops assistant",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      },
+      "tool_use_instructions": {
+        "value": "policies://tool-use-advisory-v1",
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "safety_instructions": {
+        "value": "policies://safety-standard-v1",
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "citation_rules": {
+        "value": "prompts://citation-standard-v1@v1",
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "response_format_contract": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "stop_conditions": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "per_sub_agent_prompts": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "data": {
+      "data_sources": {
+        "value": [
+          "incident_db"
+        ],
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "rag_enabled": {
+        "value": true,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "retrieval_type": {
+        "value": "hybrid",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      },
+      "chunk_size": {
+        "value": 512,
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "chunk_overlap": {
+        "value": 128,
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "top_k": {
+        "value": 5,
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "score_threshold": {
+        "value": 0.75,
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "knowledge_source_refs": {
+        "value": [
+          "kb://incident-db-prod-v3@v3"
+        ],
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "structured_grounding": {
+        "value": false,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "tooling": {
+      "bound_tools": {
+        "value": [
+          "tools://incident_reader@v1"
+        ],
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "tool_permission": {
+        "value": "read",
+        "value_source": "inferred",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "mcp_connectors": {
+        "value": [
+          "gcp-ticketing"
+        ],
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "tool_auth": {
+        "value": "secret_manager",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "rate_limits": {
+        "value": "60/min",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "orchestration": {
+      "orchestration_type": {
+        "value": "single",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      },
+      "sub_agents": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "retries": {
+        "value": 1,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "fallback_behavior": {
+        "value": "graceful_degrade",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "hitl_gate_placement": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "a2a_enabled": {
+        "value": true,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "agent_card": {
+        "value": "a2a://agt-noc-incident-summarizer-20260122-b2e7",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "message_task_format": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "artifact_exchange": {
+        "value": false,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "governance": {
+      "approvals_required": {
+        "value": [
+          "business_owner",
+          "risk_officer"
+        ],
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      },
+      "audit_level": {
+        "value": "standard",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "policy_controls": {
+        "value": [
+          "policies://advisory-scope-v1",
+          "policies://citation-standard-v1"
+        ],
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "observability": {
+      "cost_label": {
+        "value": "noc-ops",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "logging_level": {
+        "value": "info",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "required_telemetry": {
+        "value": [
+          "requests",
+          "tokens",
+          "p95_latency",
+          "errors"
+        ],
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "deployment": {
+      "exposure_channel": {
+        "value": "internal-web",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred — confirm in review card."
+      },
+      "auth_gating": {
+        "value": "sso-required",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "deploy_rate_limits": {
+        "value": "120/min",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "environment": {
+        "value": "production",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "promotion_rollback": {
+        "value": "blue-green",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "runtime": {
+      "runtime_host": {
+        "value": "Cloud Run",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "resolver_profile": {
+        "value": "standardized-resolver-v1",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "concurrency": {
+        "value": 4,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "timeout": {
+        "value": 30,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "scaling_policy": {
+        "value": "auto:0-4",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "model_gateway_ref": {
+        "value": "vertex://gemini-1.5-flash",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "knowledge_sources": {
+      "source_uri": {
+        "value": "gs://brightspeed-noc/incident-db/",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "parser": {
+        "value": "document_ai",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "source_chunking": {
+        "value": "recursive/512-128",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "embedding_model": {
+        "value": "vertex://text-embedding-004",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "index_target": {
+        "value": "vector://alloydb-incidents",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "sensitivity": {
+        "value": "internal",
+        "value_source": "inferred",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "source_approval": {
+        "value": "approved",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "refresh_cadence": {
+        "value": "weekly",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "source_version": {
+        "value": "v1",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      }
+    },
+    "evidence": {
+      "evidence_store_uri": {
+        "value": "gs://brightspeed-evidence/noc-summarizer/",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "evidence_retention": {
+        "value": "90d",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "artifact_links": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    }
+  },
+  "capability_tier": "standardized",
+  "governance_path": "standard",
+  "tracks": {
+    "registry": {
+      "status": "ready",
+      "steps": [
+        {
+          "name": "Schema validated",
+          "status": "ready",
+          "at": "2026-06-28T10:00:00Z"
+        },
+        {
+          "name": "Registered",
+          "status": "ready",
+          "at": "2026-06-28T10:00:00Z"
+        },
+        {
+          "name": "Approvals granted",
+          "status": "ready",
+          "at": "2026-06-28T10:00:00Z"
+        }
+      ]
+    },
+    "runtime": {
+      "status": "ready",
+      "steps": [
+        {
+          "name": "Resolver profile",
+          "status": "ready",
+          "at": "2026-06-28T11:00:00Z"
+        },
+        {
+          "name": "Runtime host",
+          "status": "ready",
+          "at": "2026-06-28T11:00:00Z"
+        },
+        {
+          "name": "Model gateway",
+          "status": "ready",
+          "at": "2026-06-28T11:00:00Z"
+        },
+        {
+          "name": "MCP sidecars",
+          "status": "ready",
+          "at": "2026-06-28T11:00:00Z"
+        },
+        {
+          "name": "Telemetry sink",
+          "status": "ready",
+          "at": "2026-06-28T11:00:00Z"
+        }
+      ]
+    },
+    "content": {
+      "status": "ready",
+      "steps": [
+        {
+          "name": "Ingest",
+          "status": "ready",
+          "at": "2026-07-27T03:00:00Z"
+        },
+        {
+          "name": "Parse",
+          "status": "ready",
+          "at": "2026-07-27T03:00:00Z"
+        },
+        {
+          "name": "Chunk",
+          "status": "ready",
+          "at": "2026-07-27T03:00:00Z"
+        },
+        {
+          "name": "Embed",
+          "status": "ready",
+          "at": "2026-07-27T03:00:00Z"
+        },
+        {
+          "name": "Index",
+          "status": "ready",
+          "at": "2026-07-27T03:00:00Z"
+        },
+        {
+          "name": "Tag & Govern",
+          "status": "ready",
+          "at": "2026-07-27T03:00:00Z"
+        },
+        {
+          "name": "Refresh",
+          "status": "ready",
+          "at": "2026-07-27T03:00:00Z"
+        }
+      ]
+    }
+  },
+  "signal_breakdown": {
+    "S1": {
+      "fired": true,
+      "why": "incident database provided (retrieval need)",
+      "weight_minimal": 0,
+      "weight_standardized": 10,
+      "weight_advanced": 5
+    },
+    "S2": {
+      "fired": true,
+      "why": "summarize AND flag (2 action verbs)",
+      "weight_minimal": 0,
+      "weight_standardized": 3,
+      "weight_advanced": 10
+    },
+    "S3": {
+      "fired": false,
+      "why": "no cross-system cue",
+      "weight_minimal": 0,
+      "weight_standardized": 5,
+      "weight_advanced": 10
+    },
+    "S4": {
+      "fired": true,
+      "why": "incident_reader tool bound",
+      "weight_minimal": 5,
+      "weight_standardized": 5,
+      "weight_advanced": 5
+    },
+    "S5": {
+      "fired": false,
+      "why": "no hand-off / routing cue",
+      "weight_minimal": 0,
+      "weight_standardized": 2,
+      "weight_advanced": 10
+    },
+    "S6": {
+      "fired": false,
+      "why": "no explicit multi-agent cue",
+      "weight_minimal": 0,
+      "weight_standardized": 0,
+      "weight_advanced": 15
+    }
+  },
+  "review_card": null,
+  "evaluation_pack_id": "pack-noc-incident-summarizer",
+  "approval_ids": [
+    "appr-noc-bo",
+    "appr-noc-risk"
+  ],
+  "fast_path_expiry_date": null,
+  "created_at": "2026-01-22T09:00:00Z",
+  "updated_at": "2026-07-28T08:00:00Z",
+  "demo_mode": false
+}

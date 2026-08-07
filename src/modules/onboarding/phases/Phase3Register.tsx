@@ -3,8 +3,8 @@ import { ReviewCard } from '@/components/domain';
 import type { PhaseProps } from '../WizardPage';
 import { useWorkspace } from '@/kernel/store';
 import { api } from '@/kernel/api';
-import { synthesize, applyTierOverride } from '@/kernel/engine';
-import type { CapabilityTier } from '@/types';
+import { synthesize, applyTierOverride, applyArchitectureOverride } from '@/kernel/engine';
+import type { CapabilityTier, Architecture } from '@/types';
 import { CheckCircle2, ArrowRight, ArrowLeft, ClipboardCheck } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
@@ -36,6 +36,12 @@ export function Phase3Register({ draft, patch, goPhase }: PhaseProps) {
     else pushToast('warn', res.note);
   };
 
+  const overrideArch = (a: Architecture) => {
+    const res = applyArchitectureOverride(draft.intent, a);
+    if (res.accepted && res.result) { patch((d) => ({ ...d, synthesis: res.result!, confirmedArchitecture: res.result!.architecture })); pushToast('ok', res.note); }
+    else pushToast('warn', res.note);
+  };
+
   const register = () => {
     const id = api.register(draft.id);
     if (id) goPhase(4);
@@ -62,7 +68,7 @@ export function Phase3Register({ draft, patch, goPhase }: PhaseProps) {
       <div className="mb-3 text-[13px] font-semibold text-text-hi">Phase 3 · Register</div>
       <div className="grid grid-cols-2 gap-4">
       <div className="space-y-4">
-        <ReviewCard card={draft.synthesis.review_card} onOverrideTier={override} />
+        <ReviewCard card={draft.synthesis.review_card} architecture={draft.synthesis.trace.stage2b_architecture} recommending={draft.archRecommending} onOverrideTier={override} onOverrideArchitecture={overrideArch} />
       </div>
       <div className="space-y-4">
         {questions.length > 0 && (

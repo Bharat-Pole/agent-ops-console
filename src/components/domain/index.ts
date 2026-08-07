@@ -9,3 +9,4 @@ export { Sparkline } from './Sparkline';
 export { MiniTrackPills } from './MiniTrackPills';
 export { ReviewCard } from './ReviewCard';
 export { EngineTrace } from './EngineTrace';
+export { ProjectPreview } from './ProjectPreview';

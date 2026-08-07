@@ -3,7 +3,7 @@
 // the created agent id. Drafts live in the store so /onboarding/:draftId/phase/:n
 // resumes them.
 
-import type { CapabilityTier, RiskTier } from '@/types';
+import type { CapabilityTier, RiskTier, Architecture } from '@/types';
 import type { Intent, SynthesisResult } from './engine/types';
 
 export interface WorkPackage {
@@ -22,6 +22,8 @@ export interface OnboardingDraft {
   synthesis: SynthesisResult | null;
   confirmedTier: CapabilityTier | null;
   confirmedRisk: RiskTier | null;
+  confirmedArchitecture: Architecture | null;
+  archRecommending?: boolean; // true while the LLM recommender call is in flight
   workPackage: WorkPackage;
   elicitationAnswers: Record<string, string>;
   governance: { sensitivity: string; regulatory: string };
@@ -71,6 +73,7 @@ export function newDraft(id: string, now: string, intent?: Partial<Intent>): Onb
     synthesis: null,
     confirmedTier: null,
     confirmedRisk: null,
+    confirmedArchitecture: null,
     workPackage: emptyWorkPackage(),
     elicitationAnswers: {},
     governance: { sensitivity: '', regulatory: '' },

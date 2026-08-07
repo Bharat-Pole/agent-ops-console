@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agt-incident-response-coordinator-20260205-c3d9"
+version = "0.1.0"
+description = "Coordinates sub-agents to triage major incidents: log analysis, impact, comms drafting, and notification routing."
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[project.scripts]
+agt-incident-response-coordinator-20260205-c3d9 = "agt_incident_response_coordinator_20260205_c3d9.runtime.cli:main"

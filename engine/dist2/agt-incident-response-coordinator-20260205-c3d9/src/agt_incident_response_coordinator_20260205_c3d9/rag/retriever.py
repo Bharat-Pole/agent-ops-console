@@ -1,0 +1,41 @@
+"""Local retriever (top_k=5, score_threshold=0.75).
+
+Uses a pure-Python InMemoryVectorStore (no native deps) built lazily from the
+bundled sample docs on first use — so importing/compiling the graph needs no API
+key and `pip install` needs no C/C++ toolchain. For a persistent/managed store,
+swap InMemoryVectorStore for Chroma or AlloyDB/pgvector — the console's index_target
+for this agent is "vector://alloydb-incidents".
+"""
+import pathlib
+from functools import lru_cache
+
+from langchain_core.vectorstores import InMemoryVectorStore
+from langchain_core.documents import Document
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+TOP_K = 5
+_DOCS_DIR = pathlib.Path(__file__).parent / "sample_docs"
+
+
+def _embeddings():
+    return GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+
+
+def _load_docs():
+    return [
+        Document(page_content=p.read_text(encoding="utf-8"), metadata={"doc_id": p.stem})
+        for p in sorted(_DOCS_DIR.glob("*.md"))
+    ]
+
+
+@lru_cache(maxsize=1)
+def _store():
+    vs = InMemoryVectorStore(embedding=_embeddings())
+    docs = _load_docs()
+    if docs:
+        vs.add_documents(docs)
+    return vs
+
+
+def get_retriever():
+    return _store().as_retriever(search_kwargs={"k": TOP_K})

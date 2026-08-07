@@ -1,0 +1,9 @@
+# Pinned for reproducibility (agent_forge is deterministic). The engine's smoke
+# test proves this set compiles the generated graph.
+langgraph>=0.2.62,<0.3.0
+langchain-core>=0.3.0,<0.4.0
+langchain-google-genai>=2.0.0,<3.0.0
+fastapi>=0.110.0
+uvicorn>=0.29.0
+python-dotenv>=1.0.0
+pydantic>=2.5.0

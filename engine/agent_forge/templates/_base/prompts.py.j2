@@ -1,0 +1,28 @@
+"""Synthesized prompts (agent_forge composes these from the config's real-text
+leaves — persona_role + task_prompt + a locked advisory-scope reminder).
+
+Referenced governed assets are provenance pointers to resolve before production:
+{% for c in prompt.provenance_comments %}
+#   - {{ c }}
+{% endfor %}
+"""
+
+from datetime import datetime
+
+# Today's date, computed AT RUN TIME (never baked in at generation time — codegen
+# stays byte-deterministic). Without it the model cannot know its training data is
+# stale and will override fresh tool results with its prior.
+_TODAY = datetime.now().strftime("%A, %B %d, %Y")
+
+SYSTEM_PROMPT = {{ prompt.system_prompt | tojson }} + (
+    f"\n\nToday's date is {_TODAY}. Your training data predates this — events you "
+    "believe are in the future may already have happened. For anything time-sensitive, "
+    "tool results are the ground truth: never claim an event has not occurred when "
+    "search results say it has."
+)
+
+SUBAGENT_PROMPTS = {
+{% for name, text in prompt.per_sub_agent.items() %}
+    {{ name | tojson }}: {{ text | tojson }},
+{% endfor %}
+}

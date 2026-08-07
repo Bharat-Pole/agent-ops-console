@@ -1,16 +1,22 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button } from '@/components/primitives';
-import { ThreeTrackSwimlanes } from '@/components/domain';
+import { ThreeTrackSwimlanes, ProjectPreview } from '@/components/domain';
 import type { PhaseProps } from '../WizardPage';
 import { useWorkspace } from '@/kernel/store';
-import { api } from '@/kernel/api';
+import { api, type EngineGenerateResponse } from '@/kernel/api';
 import { isLive } from '@/types';
-import { Rocket, PartyPopper, MessagesSquare, Activity, LayoutGrid, ArrowLeft } from 'lucide-react';
+import { Rocket, PartyPopper, MessagesSquare, Activity, LayoutGrid, ArrowLeft, FileCode, Loader2 } from 'lucide-react';
 
 export function Phase7Deploy({ draft, goPhase }: PhaseProps) {
   const navigate = useNavigate();
   const agent = useWorkspace((s) => s.agents.find((a) => a.config.identity.agent_id.value === draft.agent_id));
   const jobs = useWorkspace((s) => s.jobs);
+
+  const [genResult, setGenResult] = useState<EngineGenerateResponse | null>(null);
+  const [genOpen, setGenOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [llmTarget, setLlmTarget] = useState<'aistudio' | 'vertex'>('aistudio');
 
   if (!agent) {
     return <Card><div className="text-[13px] text-text-mid">Register the agent (Phase 3) first.</div><Button className="mt-3" variant="ghost" onClick={() => goPhase(3)}>← Back to Phase 3</Button></Card>;
@@ -19,6 +25,16 @@ export function Phase7Deploy({ draft, goPhase }: PhaseProps) {
   const live = isLive(agent);
   const provisioning = jobs.some((j) => (j.kind === 'runtime_provision' || j.kind === 'content_index') && j.entity_id === draft.agent_id && (j.status === 'processing' || j.status === 'queued'));
   const notStarted = agent.tracks.runtime.status === 'not_started';
+
+  const generate = async () => {
+    setGenerating(true);
+    const res = await api.generateProject(agent, llmTarget);
+    setGenerating(false);
+    if (res) {
+      setGenResult(res);
+      setGenOpen(true);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -30,6 +46,33 @@ export function Phase7Deploy({ draft, goPhase }: PhaseProps) {
           </Button>
         </div>
         <ThreeTrackSwimlanes agent={agent} />
+      </Card>
+
+      {/* Generate a real runnable LangGraph project from this agent's config (agent_forge) */}
+      <Card>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[13px] font-semibold text-text-hi">Generate runnable project</div>
+            <div className="text-[12px] text-text-low">
+              Turn this agent's canonical config into a real LangGraph Python project (spec → code).
+              Advisory-only scope is preserved — write tools are never bound.
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={llmTarget}
+              onChange={(e) => setLlmTarget(e.target.value as 'aistudio' | 'vertex')}
+              className="h-9 rounded-control border border-border bg-canvas px-2 text-[13px] text-text-mid focus-ring"
+              title="LLM SDK target"
+            >
+              <option value="aistudio">AI Studio (API key)</option>
+              <option value="vertex">Vertex AI</option>
+            </select>
+            <Button variant="new" icon={generating ? <Loader2 size={14} className="animate-spin-slow" /> : <FileCode size={14} />} onClick={generate} disabled={generating}>
+              {generating ? 'Generating…' : 'Generate runnable project'}
+            </Button>
+          </div>
+        </div>
       </Card>
 
       {live && (
@@ -52,6 +95,8 @@ export function Phase7Deploy({ draft, goPhase }: PhaseProps) {
       <div className="flex items-center gap-2">
         <Button variant="ghost" icon={<ArrowLeft size={14} />} onClick={() => goPhase(6)}>Back</Button>
       </div>
+
+      <ProjectPreview open={genOpen} onClose={() => setGenOpen(false)} result={genResult} />
     </div>
   );
 }

@@ -33,6 +33,21 @@ export interface ToolSchema {
   outputs: Record<string, string>;
 }
 
+// Executable HTTP tool definition. {param} placeholders are filled from the tool's
+// single-string input at call time. auth_secret_ref is a vault secret NAME only —
+// the value is injected engine-side and never stored/transported here.
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+
+export interface HttpToolConfig {
+  method: HttpMethod;
+  url_template: string; // e.g. "https://api.example.com/v1/search?q={query}"
+  query_params?: Record<string, string>; // values may contain {param} placeholders
+  headers?: Record<string, string>; // MUST NOT contain secret values
+  body_template?: string | null; // {param} placeholders, for non-GET
+  auth_secret_ref?: string | null; // vault secret NAME only — never a value
+  auth_header?: string; // default 'Authorization: Bearer {secret}'
+}
+
 export interface ToolAsset {
   id: string;
   version: string;
@@ -47,6 +62,14 @@ export interface ToolAsset {
   used_by: string[]; // agent_id[]
   // Canned fixtures the Playground uses to render a simulated tool result.
   result_fixtures?: string[];
+  // 'catalog' (default) = metadata/simulated; 'http_api' = real live HTTP call.
+  kind?: 'catalog' | 'http_api';
+  http?: HttpToolConfig; // present iff kind === 'http_api'
+  // DECLARED implementation (kills name-based capability guessing):
+  //   'web_search' = live web search; 'http_api' = the http config above;
+  //   'none' = not connected — the agent gets an honest "not connected" stub.
+  // Absent (legacy tools) → engine falls back to its name heuristic.
+  capability?: 'web_search' | 'http_api' | 'none';
 }
 
 // ---- MCP Connectors -------------------------------------------------------

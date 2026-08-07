@@ -1,0 +1,931 @@
+{
+  "config": {
+    "identity": {
+      "agent_name": {
+        "value": "Release Notes Pipeline",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "agent_id": {
+        "value": "agt-release-notes-pipeline-20260731-p1a1",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "business_owner": {
+        "value": "sarah.chen@brightspeed.com",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "technical_owner": {
+        "value": "marcus.dev@brightspeed.com",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "executive_sponsor": {
+        "value": "vp.networkops@brightspeed.com",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "use_case_category": {
+        "value": "network_ops",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred \u2014 confirm in review card."
+      },
+      "consumer_type": {
+        "value": "NOC team",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "intended_audience": {
+        "value": "NOC incident responders and on-call leads",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "description": {
+        "value": "Sequential pipeline: research -> draft -> review.",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "objective": {
+        "value": "First research the changes, then draft the release notes, then review them for accuracy.",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "lifecycle": {
+      "lifecycle_status": {
+        "value": "approved",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "risk_tier": {
+        "value": "high",
+        "value_source": "inferred",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "last_review_date": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "next_review_date": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "exception_status": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "model": {
+      "model_primary": {
+        "value": "vertex://gemini-1.5-pro",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "model_fallback": {
+        "value": "vertex://gemini-1.5-pro",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "temperature": {
+        "value": 0.3,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "max_output_tokens": {
+        "value": 4096,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "context_window_ref": {
+        "value": "128k",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "cost_awareness": {
+        "value": "high \u2014 multi-agent fan-out",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred \u2014 confirm in review card."
+      }
+    },
+    "prompt": {
+      "system_prompt_ref": {
+        "value": "prompts://coordinator-system-v1@v1",
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "user_prompt_template": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "task_prompt": {
+        "value": "Perform: Coordinate a team of agents to triage major incidents: analyze logs from the incident database and ticketing system, assess customer impact, draft comms, and route notifications to the on-call NOC lead and Slack.",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Derived from objective \u2014 refine before production."
+      },
+      "persona_role": {
+        "value": "network_ops assistant",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred \u2014 confirm in review card."
+      },
+      "tool_use_instructions": {
+        "value": "policies://tool-use-advisory-v1",
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "safety_instructions": {
+        "value": "policies://safety-standard-v1",
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "citation_rules": {
+        "value": "prompts://citation-standard-v1@v1",
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "response_format_contract": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "stop_conditions": {
+        "value": null,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "per_sub_agent_prompts": {
+        "value": {
+          "research": "Research the changes to describe; cite incident records.",
+          "draft": "Draft the release notes from the research above.",
+          "review": "Review the draft for accuracy; advisory only."
+        },
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "data": {
+      "data_sources": {
+        "value": [
+          "incident_db",
+          "ticketing"
+        ],
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "rag_enabled": {
+        "value": true,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "retrieval_type": {
+        "value": "hybrid",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred \u2014 confirm in review card."
+      },
+      "chunk_size": {
+        "value": 512,
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "chunk_overlap": {
+        "value": 128,
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "top_k": {
+        "value": 5,
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "score_threshold": {
+        "value": 0.75,
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "knowledge_source_refs": {
+        "value": [
+          "kb://incident-db-prod-v3@v3"
+        ],
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "structured_grounding": {
+        "value": true,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "tooling": {
+      "bound_tools": {
+        "value": [
+          "tools://incident_reader@v1",
+          "tools://log_reader@v1",
+          "tools://health_checker@v1",
+          "tools://jira_reader@v1"
+        ],
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "tool_permission": {
+        "value": "read",
+        "value_source": "inferred",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "mcp_connectors": {
+        "value": [
+          "gcp-ticketing",
+          "jira"
+        ],
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "tool_auth": {
+        "value": "secret_manager",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "rate_limits": {
+        "value": "60/min",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "orchestration": {
+      "orchestration_type": {
+        "value": "coordinator+subagents",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred \u2014 confirm in review card."
+      },
+      "sub_agents": {
+        "value": [
+          {
+            "name": "research",
+            "role": "Gather the changes to describe.",
+            "prompt_hint": "Research the changes; cite sources.",
+            "tools": [
+              "tools://incident_reader@v1"
+            ]
+          },
+          {
+            "name": "draft",
+            "role": "Draft the release notes from the research.",
+            "prompt_hint": "Draft clear release notes.",
+            "tools": []
+          },
+          {
+            "name": "review",
+            "role": "Review the draft for accuracy and tone.",
+            "prompt_hint": "Review; advisory only.",
+            "tools": []
+          }
+        ],
+        "value_source": "inferred",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "retries": {
+        "value": 2,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "fallback_behavior": {
+        "value": "graceful_degrade",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "hitl_gate_placement": {
+        "value": [
+          {
+            "placement": "on draft -> review edge",
+            "trigger": "Human approves the draft before review"
+          }
+        ],
+        "value_source": "inferred",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "a2a_enabled": {
+        "value": true,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "agent_card": {
+        "value": "a2a://agt-incident-response-coordinator-20260205-c3d9",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "message_task_format": {
+        "value": "a2a/task-v1",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred \u2014 confirm in review card."
+      },
+      "artifact_exchange": {
+        "value": true,
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "pattern": {
+        "value": "pipeline",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "governance": {
+      "approvals_required": {
+        "value": [
+          "business_owner",
+          "risk_officer",
+          "security_committee"
+        ],
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred \u2014 confirm in review card."
+      },
+      "audit_level": {
+        "value": "verbose",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "policy_controls": {
+        "value": [
+          "policies://advisory-scope-v1",
+          "policies://citation-standard-v1"
+        ],
+        "value_source": "inherited",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "observability": {
+      "cost_label": {
+        "value": "noc-ops",
+        "value_source": "user",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "logging_level": {
+        "value": "debug",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "required_telemetry": {
+        "value": [
+          "requests",
+          "tokens",
+          "p95_latency",
+          "errors"
+        ],
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "deployment": {
+      "exposure_channel": {
+        "value": "internal-web",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "medium",
+        "gap_note": "Engine-inferred \u2014 confirm in review card."
+      },
+      "auth_gating": {
+        "value": "sso-required",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "deploy_rate_limits": {
+        "value": "120/min",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "environment": {
+        "value": "staging",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "promotion_rollback": {
+        "value": "blue-green",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "runtime": {
+      "runtime_host": {
+        "value": "GKE",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "resolver_profile": {
+        "value": "advanced-resolver-v1",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "concurrency": {
+        "value": 8,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "timeout": {
+        "value": 60,
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "scaling_policy": {
+        "value": "auto:1-8",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "model_gateway_ref": {
+        "value": "vertex://gemini-1.5-pro",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      }
+    },
+    "knowledge_sources": {
+      "source_uri": {
+        "value": "gs://brightspeed-noc/incident-db/",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "parser": {
+        "value": "document_ai",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "source_chunking": {
+        "value": "recursive/512-128",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "embedding_model": {
+        "value": "vertex://text-embedding-004",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "index_target": {
+        "value": "vector://alloydb-incidents",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "sensitivity": {
+        "value": "internal",
+        "value_source": "inferred",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "source_approval": {
+        "value": "approved",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "refresh_cadence": {
+        "value": "weekly",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      },
+      "source_version": {
+        "value": "v1",
+        "value_source": "inferred",
+        "verified_flag": false,
+        "confidence": "low",
+        "gap_note": "Auto-generated. Confirm with owner."
+      }
+    },
+    "evidence": {
+      "evidence_store_uri": {
+        "value": "gs://brightspeed-evidence/incident-coordinator/",
+        "value_source": "system",
+        "verified_flag": true,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "evidence_retention": {
+        "value": "90d",
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      },
+      "artifact_links": {
+        "value": [],
+        "value_source": "default",
+        "verified_flag": false,
+        "confidence": "high",
+        "gap_note": null
+      }
+    }
+  },
+  "capability_tier": "advanced",
+  "governance_path": "deep",
+  "tracks": {
+    "registry": {
+      "status": "ready",
+      "steps": [
+        {
+          "name": "Schema validated",
+          "status": "ready",
+          "at": "2026-07-18T10:00:00Z"
+        },
+        {
+          "name": "Registered",
+          "status": "ready",
+          "at": "2026-07-18T10:00:00Z"
+        },
+        {
+          "name": "Approvals granted",
+          "status": "ready",
+          "at": "2026-07-18T10:00:00Z"
+        }
+      ]
+    },
+    "runtime": {
+      "status": "in_progress",
+      "steps": [
+        {
+          "name": "Resolver profile",
+          "status": "ready",
+          "at": "2026-07-28T08:00:00Z"
+        },
+        {
+          "name": "Runtime host",
+          "status": "ready",
+          "at": "2026-07-28T08:00:00Z"
+        },
+        {
+          "name": "Model gateway",
+          "status": "in_progress",
+          "at": null
+        },
+        {
+          "name": "MCP sidecars",
+          "status": "not_started",
+          "at": null
+        },
+        {
+          "name": "Telemetry sink",
+          "status": "not_started",
+          "at": null
+        }
+      ]
+    },
+    "content": {
+      "status": "in_progress",
+      "steps": [
+        {
+          "name": "Ingest",
+          "status": "ready",
+          "at": "2026-07-28T08:00:00Z"
+        },
+        {
+          "name": "Parse",
+          "status": "ready",
+          "at": "2026-07-28T08:00:00Z"
+        },
+        {
+          "name": "Chunk",
+          "status": "ready",
+          "at": "2026-07-28T08:00:00Z"
+        },
+        {
+          "name": "Embed",
+          "status": "ready",
+          "at": "2026-07-28T08:00:00Z"
+        },
+        {
+          "name": "Index",
+          "status": "in_progress",
+          "at": null
+        },
+        {
+          "name": "Tag & Govern",
+          "status": "not_started",
+          "at": null
+        },
+        {
+          "name": "Refresh",
+          "status": "not_started",
+          "at": null
+        }
+      ]
+    }
+  },
+  "signal_breakdown": {
+    "S1": {
+      "fired": true,
+      "why": "incident DB + ticketing (retrieval need)",
+      "weight_minimal": 0,
+      "weight_standardized": 10,
+      "weight_advanced": 5
+    },
+    "S2": {
+      "fired": true,
+      "why": "analyze, assess, draft, route (multi-skill)",
+      "weight_minimal": 0,
+      "weight_standardized": 3,
+      "weight_advanced": 10
+    },
+    "S3": {
+      "fired": true,
+      "why": "incident DB + ticketing + Slack (cross-system)",
+      "weight_minimal": 0,
+      "weight_standardized": 5,
+      "weight_advanced": 10
+    },
+    "S4": {
+      "fired": true,
+      "why": "multiple reader tools bound",
+      "weight_minimal": 5,
+      "weight_standardized": 5,
+      "weight_advanced": 5
+    },
+    "S5": {
+      "fired": true,
+      "why": "route notifications to on-call (hand-off)",
+      "weight_minimal": 0,
+      "weight_standardized": 2,
+      "weight_advanced": 10
+    },
+    "S6": {
+      "fired": true,
+      "why": "coordinate a team of agents (explicit multi-agent)",
+      "weight_minimal": 0,
+      "weight_standardized": 0,
+      "weight_advanced": 15
+    }
+  },
+  "review_card": {
+    "proposed_tier": "advanced",
+    "proposed_archetype": "workflow_coordinator",
+    "tier_label": "Team Coordinator",
+    "signal_breakdown": {
+      "S1": {
+        "fired": true,
+        "why": "incident DB + ticketing (retrieval need)",
+        "weight_minimal": 0,
+        "weight_standardized": 10,
+        "weight_advanced": 5
+      },
+      "S2": {
+        "fired": true,
+        "why": "analyze, assess, draft, route (multi-skill)",
+        "weight_minimal": 0,
+        "weight_standardized": 3,
+        "weight_advanced": 10
+      },
+      "S3": {
+        "fired": true,
+        "why": "incident DB + ticketing + Slack (cross-system)",
+        "weight_minimal": 0,
+        "weight_standardized": 5,
+        "weight_advanced": 10
+      },
+      "S4": {
+        "fired": true,
+        "why": "multiple reader tools bound",
+        "weight_minimal": 5,
+        "weight_standardized": 5,
+        "weight_advanced": 5
+      },
+      "S5": {
+        "fired": true,
+        "why": "route notifications to on-call (hand-off)",
+        "weight_minimal": 0,
+        "weight_standardized": 2,
+        "weight_advanced": 10
+      },
+      "S6": {
+        "fired": true,
+        "why": "coordinate a team of agents (explicit multi-agent)",
+        "weight_minimal": 0,
+        "weight_standardized": 0,
+        "weight_advanced": 15
+      }
+    },
+    "scores": {
+      "minimal": 20,
+      "standardized": 25,
+      "advanced": 50
+    },
+    "config_summary": {
+      "model": "vertex://gemini-1.5-pro (per-sub-agent routing)",
+      "rag": "Enabled (structured grounding)",
+      "tools": [
+        "incident_reader",
+        "log_reader",
+        "health_checker",
+        "jira_reader"
+      ],
+      "orchestration": "coordinator+subagents",
+      "a2a": "full exchange"
+    },
+    "governance_summary": {
+      "risk_tier": "high",
+      "risk_why": "customer-impacting incidents + write-intent detected",
+      "governance_path": "deep",
+      "path_desc": "Full Phase 6 eval (pack must score \u226590) + committee approval.",
+      "approvals_required": [
+        "business_owner",
+        "risk_officer",
+        "security_committee"
+      ],
+      "hitl_gates": 2
+    },
+    "capability_floor_note": null,
+    "flagged_write_tools": [],
+    "fields_requiring_confirmation": [
+      {
+        "field": "bound_tools",
+        "proposed_value": "2 write-capable tool(s) FLAGGED",
+        "confidence": "low",
+        "gap_note": "Write-capable tools detected. NOT bound. Advisory-only scope enforced \u2014 human decision required.",
+        "governance_critical": false
+      },
+      {
+        "field": "risk_tier",
+        "proposed_value": "high",
+        "confidence": "medium",
+        "gap_note": "Inferred from objective \u2014 confirm data sensitivity.",
+        "governance_critical": true
+      },
+      {
+        "field": "sub_agents",
+        "proposed_value": "4 sub-agents decomposed",
+        "confidence": "low",
+        "gap_note": "Auto-decomposed. Confirm ownership and prompts.",
+        "governance_critical": false
+      }
+    ],
+    "reasoning": [
+      "argmax(minimal=20, standardized=25, advanced=50) \u2192 advanced",
+      "OVERRIDE: explicit multi-agent (S6>0) \u2192 force Advanced"
+    ],
+    "editable": true,
+    "user_can_override_tier": true,
+    "user_can_override_risk": true
+  },
+  "evaluation_pack_id": "pack-incident-response-coordinator",
+  "approval_ids": [
+    "appr-incident-bo",
+    "appr-incident-risk",
+    "appr-incident-sec"
+  ],
+  "fast_path_expiry_date": null,
+  "created_at": "2026-02-05T09:00:00Z",
+  "updated_at": "2026-07-28T08:00:00Z",
+  "demo_mode": false
+}

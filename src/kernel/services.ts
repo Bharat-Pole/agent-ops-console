@@ -5,10 +5,12 @@ import { ws } from './store';
 import { startJob } from './jobs';
 import { audit, nowIso } from './api';
 import { generateEvalPack } from './engine/evalGen';
-import { synthesize as runEngine } from './engine';
+import { synthesize as runEngine, applyLlmRecommendation, ARCHITECTURES, synthesizeGraphSpec } from './engine';
+import type { LlmArchitectureProposal } from './engine';
 import type { OnboardingDraft } from './wizard';
 import type {
   AgentRecord, ApprovalItem, ApprovalStep, EvalResult, EvaluationPack, PipelineRun, TrackStep, Track,
+  OrchestrationPattern, OrchestrationType, SubAgent, GraphSpec,
 } from '@/types';
 import { agentId, isLive } from '@/types';
 import { governancePathFor, PATH_DEFS, FAST_PATH_DAYS, DEMO_TODAY } from './constants';
@@ -116,9 +118,58 @@ export const services = {
         synthesis: result,
         confirmedTier: result.capability_tier,
         confirmedRisk: result.risk_tier,
+        confirmedArchitecture: result.architecture,
         updated_at: nowIso(),
       }));
+      // LLM-first: refine the (deterministic) architecture via the engine service.
+      // Fire-and-forget — the deterministic baseline already stands if this fails.
+      void services.recommendArchitecture(draftId);
     });
+  },
+
+  // POST {VITE_ENGINE_URL}/v1/architecture/recommend — LLM-first architecture
+  // recommendation. The deterministic baseline is already in the draft; this
+  // overlays the LLM's pick after re-validating it. Any failure (no service,
+  // offline, invalid output) degrades gracefully to the baseline.
+  async recommendArchitecture(draftId: string): Promise<void> {
+    const engineUrl = (import.meta.env.VITE_ENGINE_URL as string | undefined)?.replace(/\/$/, '');
+    if (!engineUrl) return; // no recommender configured → keep the rule-based baseline silently
+    const draft = ws().drafts.find((d) => d.id === draftId);
+    if (!draft?.synthesis) return;
+
+    ws().patchDraft(draftId, (d) => ({ ...d, archRecommending: true }));
+    try {
+      const resp = await fetch(`${engineUrl}/v1/architecture/recommend`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          intent: draft.intent,
+          nlu: draft.synthesis.trace.stage1_nlu,
+          classification: draft.synthesis.trace.stage2_classification,
+          allowed_architectures: ARCHITECTURES,
+          bound_tools: draft.synthesis.config.tooling.bound_tools.value,
+        }),
+      });
+      if (!resp.ok) throw new Error(`engine ${resp.status}`);
+      const llm = (await resp.json()) as LlmArchitectureProposal;
+      const res = applyLlmRecommendation(draft.intent, llm);
+      if (res.accepted && res.result) {
+        ws().patchDraft(draftId, (d) => ({
+          ...d,
+          synthesis: res.result!,
+          confirmedArchitecture: res.result!.architecture,
+          archRecommending: false,
+          updated_at: nowIso(),
+        }));
+        ws().pushToast('ok', res.note);
+      } else {
+        ws().patchDraft(draftId, (d) => ({ ...d, archRecommending: false }));
+        ws().pushToast('warn', res.note);
+      }
+    } catch {
+      ws().patchDraft(draftId, (d) => ({ ...d, archRecommending: false }));
+      ws().pushToast('warn', 'Architecture recommender offline — using rule-based default.');
+    }
   },
 
   // POST /v1/agents/register — Phase 3.
@@ -301,6 +352,82 @@ export const services = {
       store.addApproval({ id, agent_id: agentIdStr, step: 'risk_officer', required_by_path: store.agents.find((a) => agentId(a) === agentIdStr)?.governance_path ?? 'standard', status: 'pending', actor_persona: null, decided_at: null, note: `Re-review: ${field} changed.`, requested_at: nowIso() });
     }
     ws().pushToast('ok', `Change applied to ${field}.`);
+  },
+
+  // Edit an agent's orchestration (pattern + sub-agents) with the advisory
+  // guardrail enforced: every sub-agent tool must exist in the catalog, be
+  // read-only (never write_capable), and each sub-agent carries ≤3 tools.
+  updateOrchestration(
+    agentIdStr: string,
+    patch: { pattern?: OrchestrationPattern; sub_agents?: SubAgent[]; orchestration_type?: OrchestrationType; graph?: GraphSpec | null },
+  ): boolean {
+    const store = ws();
+    if (patch.sub_agents) {
+      const byId = new Map(store.tools.map((t) => [t.id, t]));
+      for (const sa of patch.sub_agents) {
+        if (sa.tools.length > 3) {
+          audit('orchestration_rejected', 'agent', agentIdStr, `Sub-agent ${sa.name}: >3 tools rejected (LOCKED).`);
+          ws().pushToast('err', `${sa.name}: sub-agents may bind at most 3 tools.`);
+          return false;
+        }
+        for (const ref of sa.tools) {
+          const id = ref.replace('tools://', '').split('@')[0];
+          const tool = byId.get(id);
+          if (!tool || tool.write_capable) {
+            audit('orchestration_rejected', 'agent', agentIdStr,
+              `Sub-agent ${sa.name}: tool ${id} ${tool ? 'is write-capable' : 'not in catalog'} — rejected.`);
+            ws().pushToast('err', `${sa.name}: ${id} ${tool ? 'is write-capable (advisory-block)' : 'is not a catalog tool'}.`);
+            return false;
+          }
+        }
+      }
+    }
+    store.patchAgent(agentIdStr, (a) => {
+      const next = structuredClone(a);
+      if (patch.pattern) {
+        next.config.orchestration.pattern = {
+          value: patch.pattern, value_source: 'user', verified_flag: true, confidence: 'high', gap_note: null,
+        };
+      }
+      if (patch.sub_agents) {
+        next.config.orchestration.sub_agents = {
+          value: patch.sub_agents, value_source: 'user', verified_flag: true, confidence: 'high', gap_note: null,
+        };
+        // keep per_sub_agent_prompts keys in sync (drop removed, seed renamed/new from prompt_hint)
+        const prev = next.config.prompt.per_sub_agent_prompts.value ?? {};
+        const synced: Record<string, string> = {};
+        for (const sa of patch.sub_agents) synced[sa.name] = prev[sa.name] ?? sa.prompt_hint;
+        next.config.prompt.per_sub_agent_prompts = {
+          ...next.config.prompt.per_sub_agent_prompts, value: synced,
+        };
+      }
+      if (patch.orchestration_type) {
+        next.config.orchestration.orchestration_type = {
+          value: patch.orchestration_type, value_source: 'user', verified_flag: true, confidence: 'high', gap_note: null,
+        };
+      }
+      // Graph leaf: an explicit patch wins; otherwise regenerate from the edited
+      // pattern + sub-agents so the stored spec (and the generator) stay consistent.
+      if (patch.graph !== undefined) {
+        next.config.orchestration.graph = {
+          value: patch.graph, value_source: 'user', verified_flag: true, confidence: 'high', gap_note: null,
+        };
+      } else if (patch.sub_agents || patch.pattern) {
+        const pat = next.config.orchestration.pattern.value;
+        const subs = next.config.orchestration.sub_agents.value;
+        const kind = pat === 'pipeline' ? 'sequential_pipeline' : pat === 'hub' ? 'hub_and_spoke' : null;
+        const regen: GraphSpec | null = kind ? synthesizeGraphSpec(kind, subs, false) : null;
+        next.config.orchestration.graph = {
+          value: regen, value_source: 'user', verified_flag: true, confidence: 'high', gap_note: null,
+        };
+      }
+      next.updated_at = nowIso();
+      return next;
+    });
+    audit('config_change', 'agent', agentIdStr,
+      `Orchestration updated${patch.pattern ? `: pattern → ${patch.pattern}` : ''}${patch.sub_agents ? `; ${patch.sub_agents.length} sub-agent(s)` : ''}.`);
+    ws().pushToast('ok', 'Orchestration updated.');
+    return true;
   },
 
   // Advisory-only bind guard (acceptance #3). No flow can bind a write_capable

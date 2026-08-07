@@ -1,0 +1,55 @@
+"""{{ agent.name }} — PIPELINE (sequential stages).
+
+Topology: pipeline. Each stage is a ReAct worker; output flows to the next stage:
+START → {% for sa in sub_agents %}{{ sa.name }}{% if not loop.last %} → {% endif %}{% endfor %} → END
+"""
+from langgraph.graph import StateGraph, START, END, MessagesState
+from langgraph.prebuilt import create_react_agent
+
+from .model import build_model, has_credentials
+from .memory import build_checkpointer
+from .prompts import SUBAGENT_PROMPTS
+from .tools import ADVISORY_TOOLS
+
+STAGES = [{% for sa in sub_agents %}{{ sa.name | tojson }}{% if not loop.last %}, {% endif %}{% endfor %}]
+
+# advisory tools available to each stage (<=3, read-only)
+STAGE_TOOLS = {
+{% for sa in sub_agents %}
+    {{ sa.name | tojson }}: [{% for tn in sa.tools %}{{ tn | tojson }}{% if not loop.last %}, {% endif %}{% endfor %}],
+{% endfor %}
+}
+
+_TOOLS_BY_NAME = {getattr(t, "name", getattr(t, "__name__", "")): t for t in ADVISORY_TOOLS}
+
+
+def _stage_tools(name):
+    return [_TOOLS_BY_NAME[t] for t in STAGE_TOOLS.get(name, []) if t in _TOOLS_BY_NAME]
+
+
+def build_graph(model=None, checkpointer=None):
+    model = model if model is not None else build_model()
+    g = StateGraph(MessagesState)
+    prev = START
+    for _name in STAGES:
+        worker = create_react_agent(model, tools=_stage_tools(_name),
+                                    prompt=SUBAGENT_PROMPTS.get(_name, ""))
+
+        def _stage(state, _w=worker):
+            out = _w.invoke(state)
+            return {"messages": out["messages"][-1:]}
+
+        g.add_node(_name, _stage)
+        g.add_edge(prev, _name)
+        prev = _name
+    g.add_edge(prev, END)
+
+    return g.compile(
+        checkpointer=checkpointer if checkpointer is not None else build_checkpointer(),
+{% if hitl.interrupt_before %}
+        interrupt_before={{ hitl.interrupt_before | tojson }},
+{% endif %}
+    )
+
+
+graph = build_graph() if has_credentials() else None

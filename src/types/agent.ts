@@ -22,6 +22,14 @@ export type LifecycleStatus =
   | 'suspended'
   | 'retired';
 export type OrchestrationType = 'single' | 'router' | 'coordinator+subagents';
+// Additive refinement of coordinator+subagents: hub (supervisor), pipeline
+// (sequential stages), parallel (fan-out + join/aggregate).
+export type OrchestrationPattern = 'hub' | 'pipeline' | 'parallel';
+// Recommendation-level architecture vocabulary (generatable subset). Maps onto
+// (orchestration_type × pattern × graph): single→single; sequential_pipeline→
+// coordinator+subagents/pipeline; hub_and_spoke→coordinator+subagents/hub;
+// graph→router (+ explicit graph spec). Extensible later (hierarchical, …).
+export type Architecture = 'single' | 'sequential_pipeline' | 'hub_and_spoke' | 'graph';
 export type ToolPermission = 'read' | 'summarize' | 'draft' | 'recommend' | 'validate'; // advisory-only, LOCKED
 export type RetrievalType = 'semantic' | 'keyword' | 'hybrid';
 export type GovernancePath = 'fast' | 'standard' | 'deep' | 'critical';
@@ -51,6 +59,25 @@ export interface SubAgent {
 export interface HitlGate {
   placement: string; // e.g. "pre-deploy", "per-tool-call", "on edge coordinator→notifier"
   trigger: string;
+}
+
+// Renderable orchestration graph (nodes + edges) — the concrete shape the code
+// generator (agent_forge) turns into a LangGraph StateGraph. Emitted by the
+// architecture recommender; null for the trivial `single` shape.
+export interface GraphNode {
+  id: string;
+  kind: 'llm' | 'tool' | 'retrieve' | 'route' | 'aggregate';
+  label?: string;
+  sub_agent?: string; // links a node to a SubAgent.name (hub / pipeline shapes)
+}
+export interface GraphEdge {
+  from: string;
+  to: string;
+  when?: string; // guard for a conditional edge (add_conditional_edges)
+}
+export interface GraphSpec {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
 }
 
 // ---- The 13 groups (each leaf wrapped in Prov<T>) -------------------------
@@ -122,12 +149,19 @@ export interface G_Tooling {
   mcp_connectors: Prov<string[]>;
   tool_auth: Prov<string | null>;
   rate_limits: Prov<string | null>;
+  // Named secret references into the engine vault (values live engine-side only):
+  // key 'model' → the LLM secret name; other keys → per-tool secret names.
+  secret_refs: Prov<Record<string, string>>;
 }
 
 // 5.7 Orchestration
 export interface G_Orchestration {
   orchestration_type: Prov<OrchestrationType>;
+  // additive: refines coordinator+subagents into hub | pipeline | parallel
+  pattern: Prov<OrchestrationPattern>;
   sub_agents: Prov<SubAgent[]>;
+  // Explicit renderable graph (nodes+edges); null for `single`. Additive leaf.
+  graph: Prov<GraphSpec | null>;
   retries: Prov<number>;
   fallback_behavior: Prov<string>;
   hitl_gate_placement: Prov<HitlGate[]>;

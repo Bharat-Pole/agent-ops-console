@@ -1,0 +1,32 @@
+"""CLI runner:  python -m {{ pkg }}.runtime.cli "your question" """
+import sys
+
+from langchain_core.messages import HumanMessage
+
+from ..graph import build_graph
+
+
+def content_to_text(content) -> str:
+    """Gemini via langchain-core 1.x may return a LIST of content blocks."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            b if isinstance(b, str) else (b.get("text") or "")
+            for b in content
+            if isinstance(b, str) or (isinstance(b, dict) and b.get("type") in (None, "text"))
+        ).strip()
+    return str(content or "")
+
+
+def main(argv=None):
+    argv = argv if argv is not None else sys.argv[1:]
+    question = " ".join(argv).strip() or "Hello"
+    graph = build_graph()
+    config = {"configurable": {"thread_id": "cli"}}
+    result = graph.invoke({"messages": [HumanMessage(content=question)]}, config)
+    print(content_to_text(result["messages"][-1].content))
+
+
+if __name__ == "__main__":
+    main()

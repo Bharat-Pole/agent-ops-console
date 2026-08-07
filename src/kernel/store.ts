@@ -1,6 +1,10 @@
 // Section 6.1 — the single workspace store (the platform kernel state).
-// State lives in memory only (NO localStorage/sessionStorage/IndexedDB anywhere,
-// acceptance #11). Persistence is via Export/Import Workspace JSON (Section 6.6).
+//
+// Persistence: the browser workspace persists to localStorage (debounced) and
+// BOOTS EMPTY on first run — demo data loads only via the explicit "Reset demo"
+// action. User-created agents survive reloads; demo agents never resurrect
+// themselves. (Node/test runs still boot the seeded demo — no window there.)
+// Export/Import Workspace JSON (Section 6.6) remains the portable path.
 //
 // Mutation discipline (Section 6): UI components never mutate the store directly;
 // they call kernel/api.ts, which calls the well-named mutators below (or the
@@ -38,6 +42,81 @@ export interface UiState {
   navCollapsed: boolean;
   searchOpen: boolean;
   toasts: Toast[];
+  // Gemini API key entered in the UI; sent per-run to the local agent_forge
+  // engine. Persisted in localStorage by explicit user request (this is the one
+  // deliberate exception to the "no browser storage" demo rule).
+  geminiKey: string;
+}
+
+const KEY_STORAGE = 'agent_ops_gemini_key';
+
+function loadStoredKey(): string {
+  try {
+    return typeof localStorage !== 'undefined' ? (localStorage.getItem(KEY_STORAGE) ?? '') : '';
+  } catch {
+    return '';
+  }
+}
+
+function persistKey(key: string): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (key) localStorage.setItem(KEY_STORAGE, key);
+    else localStorage.removeItem(KEY_STORAGE);
+  } catch {
+    /* storage unavailable — key stays in-memory for the session */
+  }
+}
+
+// ---- workspace persistence (user data must survive reloads) -----------------
+// Previously every reload re-seeded the demo: 9 demo agents resurrected, the
+// user's own agents deleted. Now the browser boots the persisted workspace if
+// one exists, else EMPTY. "Reset demo" is the only way demo data loads.
+const WORKSPACE_STORAGE = 'agent_ops_workspace_v1';
+const PERSIST_SCHEMA = 'brightspeed-agent-ops/v1';
+
+function emptyWorkspace(): WorkspaceData {
+  return {
+    agents: [], prompts: [], tools: [], connectors: [], sources: [],
+    pipelineRuns: [], evalPacks: [], approvals: [], auditLog: [], telemetry: [],
+  };
+}
+
+type PersistedShape = WorkspaceData & { drafts: OnboardingDraft[]; _seq: number; _schema: string };
+
+function loadPersistedWorkspace(): PersistedShape | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(WORKSPACE_STORAGE);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d || d._schema !== PERSIST_SCHEMA || !Array.isArray(d.agents)) return null;
+    if (!Array.isArray(d.drafts)) d.drafts = [];
+    if (typeof d._seq !== 'number' || d._seq < 1) d._seq = 1;
+    return d as PersistedShape;
+  } catch {
+    return null;
+  }
+}
+
+let _persistTimer: ReturnType<typeof setTimeout> | undefined;
+function schedulePersist(): void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(() => {
+    try {
+      const s = useWorkspace.getState();
+      const payload: PersistedShape = {
+        agents: s.agents, prompts: s.prompts, tools: s.tools, connectors: s.connectors,
+        sources: s.sources, pipelineRuns: s.pipelineRuns, evalPacks: s.evalPacks,
+        approvals: s.approvals, auditLog: s.auditLog, telemetry: s.telemetry,
+        drafts: s.drafts, _seq: s._seq, _schema: PERSIST_SCHEMA,
+      };
+      localStorage.setItem(WORKSPACE_STORAGE, JSON.stringify(payload));
+    } catch {
+      /* quota exceeded / storage unavailable — workspace stays in-memory */
+    }
+  }, 500);
 }
 
 export interface ExportShape extends WorkspaceData {
@@ -62,6 +141,7 @@ export interface WorkspaceState extends WorkspaceData {
 
   // ---- ui actions
   setPersona: (p: Persona) => void;
+  setGeminiKey: (key: string) => void;
   toggleNav: () => void;
   setNavCollapsed: (v: boolean) => void;
   setSearchOpen: (v: boolean) => void;
@@ -89,6 +169,8 @@ export interface WorkspaceState extends WorkspaceData {
   patchConnector: (id: string, patch: Partial<McpConnector>) => void;
   upsertPrompt: (p: PromptAsset) => void;
   patchTool: (id: string, patch: Partial<ToolAsset>) => void;
+  upsertTool: (t: ToolAsset) => void;
+  upsertConnector: (c: McpConnector) => void;
   setTelemetry: (t: AgentTelemetry[]) => void;
 
   addDraft: (d: OnboardingDraft) => void;
@@ -101,18 +183,31 @@ const DEFAULT_UI: UiState = {
   navCollapsed: false,
   searchOpen: false,
   toasts: [],
+  geminiKey: loadStoredKey(),
 };
 
 function agentKey(a: AgentRecord): string {
   return a.config.identity.agent_id.value;
 }
 
+// Boot state: persisted workspace > (browser: EMPTY | node/tests: seeded demo).
+const _boot: WorkspaceData & { drafts: OnboardingDraft[]; _seq: number } = (() => {
+  const persisted = loadPersistedWorkspace();
+  if (persisted) {
+    const { _schema: _ignored, ...rest } = persisted;
+    return rest;
+  }
+  if (typeof window === 'undefined') {
+    // tsx/Node test runs — keep the deterministic seeded demo the suites assert on
+    return { ...createInitialWorkspace(), drafts: SEED_DRAFTS.map((d) => structuredClone(d)), _seq: 1 };
+  }
+  return { ...emptyWorkspace(), drafts: [], _seq: 1 };
+})();
+
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
-  ...createInitialWorkspace(),
+  ..._boot,
   jobs: [],
-  drafts: SEED_DRAFTS.map((d) => structuredClone(d)),
   ui: { ...DEFAULT_UI },
-  _seq: 1,
 
   // ---- lifecycle ----------------------------------------------------------
   reset: () => {
@@ -122,8 +217,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       jobs: [],
       drafts: SEED_DRAFTS.map((d) => structuredClone(d)),
       _seq: 1,
-      // preserve the current persona + nav layout across a reset; clear toasts
-      ui: { ...DEFAULT_UI, persona: s.ui.persona, navCollapsed: s.ui.navCollapsed },
+      // preserve persona + nav layout + API key across a reset; clear toasts
+      ui: { ...DEFAULT_UI, persona: s.ui.persona, navCollapsed: s.ui.navCollapsed, geminiKey: s.ui.geminiKey },
     }));
   },
 
@@ -175,6 +270,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   // ---- ui -----------------------------------------------------------------
   setPersona: (persona) => set((s) => ({ ui: { ...s.ui, persona } })),
+  setGeminiKey: (key) => {
+    persistKey(key);
+    set((s) => ({ ui: { ...s.ui, geminiKey: key } }));
+  },
   toggleNav: () => set((s) => ({ ui: { ...s.ui, navCollapsed: !s.ui.navCollapsed } })),
   setNavCollapsed: (v) => set((s) => ({ ui: { ...s.ui, navCollapsed: v } })),
   setSearchOpen: (v) => set((s) => ({ ui: { ...s.ui, searchOpen: v } })),
@@ -240,6 +339,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }),
   patchTool: (id, patch) =>
     set((s) => ({ tools: s.tools.map((t) => (t.id === id ? { ...t, ...patch } : t)) })),
+  upsertTool: (t) =>
+    set((s) => {
+      const exists = s.tools.some((x) => x.id === t.id);
+      return { tools: exists ? s.tools.map((x) => (x.id === t.id ? t : x)) : [...s.tools, t] };
+    }),
+  upsertConnector: (c) =>
+    set((s) => {
+      const exists = s.connectors.some((x) => x.id === c.id);
+      return { connectors: exists ? s.connectors.map((x) => (x.id === c.id ? c : x)) : [...s.connectors, c] };
+    }),
   setTelemetry: (t) => set({ telemetry: t }),
 
   addDraft: (d) => set((s) => ({ drafts: [...s.drafts, d] })),
@@ -249,3 +358,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
 // Convenience non-hook accessors for the kernel.
 export const ws = () => useWorkspace.getState();
+
+// Persist every store change (debounced) — browser only. This is what makes a
+// user-created agent survive a reload instead of being wiped by demo re-seeding.
+if (typeof window !== 'undefined') {
+  useWorkspace.subscribe(schedulePersist);
+}

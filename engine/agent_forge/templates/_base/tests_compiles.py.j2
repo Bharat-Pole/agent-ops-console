@@ -1,0 +1,12 @@
+"""Structural smoke test — the graph compiles with a fake model (no API key)."""
+from _fakes import FakeChatModel
+
+from {{ pkg }}.graph import build_graph
+
+
+def test_graph_compiles_without_api_key():
+    g = build_graph(model=FakeChatModel())
+    assert g is not None
+    nodes = set(g.get_graph().nodes)
+    expected = set({{ expected_nodes | tojson }})
+    assert expected.issubset(nodes), f"missing nodes {expected - nodes}; got {sorted(nodes)}"

@@ -1,0 +1,86 @@
+"""{{ agent.name }} — PARALLEL (fan-out + join).
+
+Topology: parallel. All branches run in one superstep, then a wait-for-ALL join
+into `aggregate` merges their outputs:
+START ⇉ [{% for sa in sub_agents %}{{ sa.name }}{% if not loop.last %}, {% endif %}{% endfor %}] → aggregate → END
+
+HITL note: `interrupt_before` on a SINGLE branch pauses the ENTIRE fan-out
+superstep (no branch runs until resume) — prefer gating `aggregate`.
+"""
+from langgraph.graph import StateGraph, START, END, MessagesState
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import AIMessage, SystemMessage
+
+from .model import build_model, has_credentials
+from .memory import build_checkpointer
+from .prompts import SYSTEM_PROMPT, SUBAGENT_PROMPTS
+from .tools import ADVISORY_TOOLS
+
+BRANCHES = [{% for sa in sub_agents %}{{ sa.name | tojson }}{% if not loop.last %}, {% endif %}{% endfor %}]
+
+# advisory tools available to each branch (<=3, read-only)
+BRANCH_TOOLS = {
+{% for sa in sub_agents %}
+    {{ sa.name | tojson }}: [{% for tn in sa.tools %}{{ tn | tojson }}{% if not loop.last %}, {% endif %}{% endfor %}],
+{% endfor %}
+}
+
+_TOOLS_BY_NAME = {getattr(t, "name", getattr(t, "__name__", "")): t for t in ADVISORY_TOOLS}
+
+
+def _branch_tools(name):
+    return [_TOOLS_BY_NAME[t] for t in BRANCH_TOOLS.get(name, []) if t in _TOOLS_BY_NAME]
+
+
+def _text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            b if isinstance(b, str) else (b.get("text") or "")
+            for b in content
+            if isinstance(b, str) or (isinstance(b, dict) and b.get("type") in (None, "text"))
+        ).strip()
+    return str(content or "")
+
+
+def build_graph(model=None, checkpointer=None):
+    model = model if model is not None else build_model()
+    g = StateGraph(MessagesState)
+    for _name in BRANCHES:
+        worker = create_react_agent(model, tools=_branch_tools(_name),
+                                    prompt=SUBAGENT_PROMPTS.get(_name, ""))
+
+        def _branch(state, _w=worker, _n=_name):
+            out = _w.invoke(state)
+            last = out["messages"][-1]
+            # label the contribution so the join + trace can attribute it
+            return {"messages": [AIMessage(content=_text(getattr(last, "content", "")), name=_n)]}
+
+        g.add_node(_name, _branch)
+        g.add_edge(START, _name)  # fan-out (same superstep)
+
+    def aggregate(state: MessagesState):
+        merged = model.invoke(
+            [SystemMessage(content=SYSTEM_PROMPT
+                           + "\n\nSynthesize the branch outputs above into one final advisory answer.")]
+            + state["messages"]
+        )
+        return {"messages": [merged]}
+
+    g.add_node("aggregate", aggregate)
+    # list-form add_edge = wait-for-ALL barrier (langgraph 1.x); aggregate runs once.
+    # MessagesState merges concurrent branch writes deterministically (insertion order).
+    # defer=True would only be needed if branches ever became multi-node.
+    g.add_edge(BRANCHES, "aggregate")
+    g.add_edge("aggregate", END)
+
+    return g.compile(
+        checkpointer=checkpointer if checkpointer is not None else build_checkpointer(),
+{% if hitl.interrupt_before %}
+        interrupt_before={{ hitl.interrupt_before | tojson }},
+{% endif %}
+    )
+
+
+graph = build_graph() if has_credentials() else None
