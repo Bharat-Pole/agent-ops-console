@@ -22,6 +22,7 @@ import ServerSecretsPage from '@/modules/assets/ServerSecretsPage';
 import ApprovalsQueuePage from '@/modules/assets/ApprovalsQueuePage';
 import ServerEvaluationsPage from '@/modules/assets/ServerEvaluationsPage';
 import ServerMonitoringPage from '@/modules/assets/ServerMonitoringPage';
+import ServerModelsPage from '@/modules/assets/ServerModelsPage';
 import A2APage from '@/modules/a2a/A2APage';
 import NotFound from '@/modules/NotFound';
 
@@ -69,6 +70,7 @@ export default function App() {
           <Route path="/mcp" element={<ServerMcpPage />} />
           <Route path="/knowledge" element={<ServerKnowledgePage />} />
           <Route path="/rag" element={<ServerRagPage />} />
+          <Route path="/models" element={<ServerModelsPage />} />
           <Route path="/secrets" element={<ServerSecretsPage />} />
           <Route path="/a2a" element={<A2APage />} />
           <Route path="/a2a/:agentId" element={<A2APage />} />

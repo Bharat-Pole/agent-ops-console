@@ -55,6 +55,7 @@ class GeminiAdapter:
     def __init__(self, api_key: str, model: str) -> None:
         self._api_key = api_key
         self.model_id = model
+        self.credential_source = "unknown"  # e.g. "vault:team.gemini.key"
 
     def generate_json(self, system: str, user: str, temperature: float = 0.2) -> ModelResult:
         try:
@@ -188,18 +189,53 @@ def set_adapter_override(adapter: ModelAdapter | None) -> None:
     _override = adapter
 
 
-def get_model_adapter() -> ModelAdapter | None:
+def resolve_credential(db, model_ref: str | None) -> tuple[str | None, str]:
+    """Find the API key for a model. Vault first, env as bootstrap fallback.
+
+    Credentials belong in the vault like every other secret: encrypted at
+    rest, rotatable without restarting the server, and per-model so different
+    teams or agents can run on different keys and billing. The env var stays
+    because a fresh install has no UI to create a secret before it can boot.
+
+    Returns (key, source) — source is recorded so a run can be traced back to
+    which credential it used.
+    """
+    if db is not None:
+        from sqlalchemy import select
+
+        from ..assets.vault import resolve_secret
+        from ..models import ModelCatalogEntry
+        ref = model_ref or settings.gemini_model
+        entry = db.scalars(select(ModelCatalogEntry).where(
+            ModelCatalogEntry.model_ref == ref)).first()
+        if entry is not None and entry.credential_ref:
+            secret = resolve_secret(db, entry.credential_ref)
+            if secret:
+                return secret, f"vault:{entry.credential_ref}"
+            # a named-but-missing secret is a misconfiguration, not a reason to
+            # silently fall back onto someone else's key
+            return None, f"vault:{entry.credential_ref} (NOT FOUND)"
+    if settings.gemini_api_key:
+        return settings.gemini_api_key, "env:PLATFORM_GEMINI_API_KEY"
+    return None, "none"
+
+
+def get_model_adapter(db=None, model_ref: str | None = None) -> ModelAdapter | None:
     """Resolve the configured adapter, or None → callers take the honest
-    deterministic-only path (never a hidden fake)."""
+    deterministic-only path (never a hidden fake). Pass `db` to use vault
+    credentials; without it only the env fallback is available."""
     if _override is not None:
         return _override
     provider = settings.llm_provider
+    key, source = resolve_credential(db, model_ref)
     if provider == "auto":
-        provider = "gemini" if settings.gemini_api_key else "none"
+        provider = "gemini" if key else "none"
     if provider == "gemini":
-        if not settings.gemini_api_key:
+        if not key:
             return None
-        return GeminiAdapter(api_key=settings.gemini_api_key, model=settings.gemini_model)
+        adapter = GeminiAdapter(api_key=key, model=model_ref or settings.gemini_model)
+        adapter.credential_source = source  # surfaced in traces, never the value
+        return adapter
     if provider == "fake":
         # explicit opt-in only (CI); visibly labeled in every stored model_id
         return FakeModelAdapter(responses=[])

@@ -13,6 +13,7 @@ import {
   Database,
   Boxes,
   KeyRound,
+  Cpu,
   Share2,
   ShieldCheck,
   ClipboardCheck,
@@ -55,7 +56,8 @@ export const NAV: NavGroup[] = [
       { label: 'RAG & Indexes', to: '/rag', icon: Boxes },
       { label: 'Prompt Repository', to: '/prompts', icon: FileText },
       { label: 'A2A Directory', to: '/a2a', icon: Share2 },
-      { label: 'API Keys', to: '/secrets', icon: KeyRound },
+      { label: 'Model Catalog', to: '/models', icon: Cpu },
+      { label: 'Secrets Vault', to: '/secrets', icon: KeyRound },
     ],
   },
   {

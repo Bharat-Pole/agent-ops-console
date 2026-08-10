@@ -447,9 +447,19 @@ export interface ServerModel {
   cost_per_1k_out: number;
   max_risk_tier: string;
   status: string;
+  /** Vault secret NAME this model authenticates with — never the value. */
+  credential_ref?: string | null;
 }
 
-export const modelsApi = { list: () => api<ServerModel[]>('/api/models') };
+export type ModelBody = Omit<ServerModel, 'id' | 'credential_ref'> & { credential_ref: string | null };
+
+export const modelsApi = {
+  list: () => api<ServerModel[]>('/api/models'),
+  create: (body: ModelBody) =>
+    api<ServerModel>('/api/models', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: ModelBody) =>
+    api<ServerModel>(`/api/models/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+};
 
 export interface SecretMeta {
   name: string;

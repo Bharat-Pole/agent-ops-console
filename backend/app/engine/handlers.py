@@ -258,6 +258,9 @@ def run_llm(state: EngineState, config: dict, ctx: ExecCtx) -> tuple[dict, dict]
             "cost": _cost(ctx, result.model_id, result.tokens_in, result.tokens_out)}
     if instruction:
         span["instruction"] = instruction[:200]
+    source = getattr(ctx.adapter, "credential_source", None)
+    if source:
+        span["credential_source"] = source  # secret NAME or "env:…", never a value
     return {"llm_output": result.text.strip()}, span
 
 

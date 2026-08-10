@@ -63,7 +63,31 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "service": "platform-backend", "version": app.version}
+        """Reports whether an LLM provider is actually reachable-by-config.
+        Without this, a missing key only surfaces mid-run as a failed node,
+        which reads like a broken platform rather than an unset variable."""
+        from .adapters.models import get_model_adapter
+        adapter = get_model_adapter()
+        return {
+            "status": "ok",
+            "service": "platform-backend",
+            "version": app.version,
+            "llm_provider": {
+                "configured": adapter is not None,
+                "model_id": getattr(adapter, "model_id", None),
+                "hint": None if adapter is not None else
+                        "set PLATFORM_GEMINI_API_KEY and restart — llm nodes will fail until then, "
+                        "and knowledge uploaded now will be keyword-only until re-ingested",
+            },
+        }
+
+    # Say it once at boot too, so a misconfigured environment is obvious
+    # before anyone builds an agent on top of it.
+    from .adapters.models import get_model_adapter as _probe
+    if _probe() is None:
+        print("WARNING: no LLM provider configured (PLATFORM_GEMINI_API_KEY unset). "
+              "Everything works except llm nodes and embeddings; knowledge ingested "
+              "now will be keyword-only until re-ingested with a provider set.")
 
     return app
 

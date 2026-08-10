@@ -112,7 +112,7 @@ def evaluate_case(db: Session, case: EvalCase, run: WorkflowRun) -> list[dict]:
     # LLM-as-judge (temp 0) --------------------------------------------------
     judge = exp.get("judge")
     if judge:
-        adapter = get_model_adapter()
+        adapter = get_model_adapter(db)
         if adapter is None:
             checks.append(_check("judge", None, "SKIPPED — no model provider configured"))
         else:

@@ -13,7 +13,19 @@ from sqlalchemy.orm import Session
 from ..audit import audit
 from ..auth.deps import current_user_dep, require_role
 from ..db import get_db
-from ..models import ModelCatalogEntry, Role, User
+from ..models import ModelCatalogEntry, Role, SecretRecord, User
+
+
+def _check_credential(db: Session, credential_ref: str | None) -> None:
+    """A model naming a secret that doesn't exist would fail at first use, deep
+    inside a run. Catch it here instead."""
+    if not credential_ref:
+        return
+    if db.scalars(select(SecretRecord).where(SecretRecord.name == credential_ref)).first() is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"no secret named {credential_ref!r} in the vault — add it under Secrets first",
+        )
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
@@ -24,6 +36,8 @@ def _payload(m: ModelCatalogEntry) -> dict:
         "display_name": m.display_name, "cost_per_1k_in": m.cost_per_1k_in,
         "cost_per_1k_out": m.cost_per_1k_out, "latency_note": m.latency_note,
         "max_risk_tier": m.max_risk_tier, "status": m.status, "fallback_ref": m.fallback_ref,
+        # secret NAME only — the value never leaves the server
+        "credential_ref": m.credential_ref,
         "created_at": m.created_at.isoformat(),
     }
 
@@ -39,6 +53,7 @@ class ModelBody(BaseModel):
     max_risk_tier: str = Field(default="high", pattern="^(low|medium|high|restricted)$")
     status: str = Field(default="active", pattern="^(active|disabled)$")
     fallback_ref: str | None = None
+    credential_ref: str | None = None
 
 
 @router.get("")
@@ -59,6 +74,7 @@ def create_model(
         fb = db.scalars(select(ModelCatalogEntry).where(ModelCatalogEntry.model_ref == body.fallback_ref)).first()
         if fb is None:
             raise HTTPException(status_code=422, detail="fallback_ref must reference an existing catalog entry")
+    _check_credential(db, body.credential_ref)
     entry = ModelCatalogEntry(**body.model_dump())
     db.add(entry)
     db.flush()
@@ -77,8 +93,10 @@ def update_model(
     entry = db.get(ModelCatalogEntry, model_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="model not found")
+    _check_credential(db, body.credential_ref)
     for key, value in body.model_dump().items():
         setattr(entry, key, value)
-    audit(db, user, "model_catalog_updated", "model", entry.model_ref)
+    audit(db, user, "model_catalog_updated", "model", entry.model_ref,
+          {"credential_ref": body.credential_ref})  # name only, never the value
     db.commit()
     return _payload(entry)

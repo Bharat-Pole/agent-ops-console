@@ -257,7 +257,7 @@ def generate(payload: dict, db=None) -> dict:
     corpus = _corpus(intent)
     registries = registry_context(db)
 
-    adapter = get_model_adapter()
+    adapter = get_model_adapter(db)
     llm_out: LlmRecommendation | None = None
     llm_attempts: list[dict] = []
     llm_error: str | None = None

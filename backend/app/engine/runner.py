@@ -147,7 +147,7 @@ def _build_ctx(db: Session, run: WorkflowRun) -> ExecCtx:
     agent = db.get(AgentControlRecord, run.agent_id)
     risk = (agent.confirmed_risk_tier or agent.draft_risk_tier)
     return ExecCtx(
-        db=db, adapter=get_model_adapter(), run=run,
+        db=db, adapter=get_model_adapter(db), run=run,
         risk_tier=risk.value if risk else "low",
         cost_rates=_cost_rates(db),
     )

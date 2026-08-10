@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..adapters import files as file_store
 from ..adapters.models import ModelCallError, ModelUnavailable, get_model_adapter
+from ..config import settings
 from ..models import KbChunk, KnowledgeSource, utcnow
 
 
@@ -66,7 +67,8 @@ def ingest(db: Session, source: KnowledgeSource, chunk_size: int = 800, chunk_ov
 
         db.execute(delete(KbChunk).where(KbChunk.source_id == source.id))
 
-        adapter = get_model_adapter()
+        # embedding model has its own catalog entry, so its own credential
+        adapter = get_model_adapter(db, settings.gemini_embedding_model)
         embeddings: list[list[float]] | None = None
         if adapter is not None:
             try:

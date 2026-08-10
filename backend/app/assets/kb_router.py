@@ -16,6 +16,7 @@ from ..adapters import vectors
 from ..adapters.models import ModelCallError, ModelUnavailable, get_model_adapter
 from ..audit import audit
 from ..auth.deps import current_user_dep, require_role
+from ..config import settings
 from ..db import get_db
 from ..models import KbChunk, KnowledgeSource, RagPipeline, Role, User
 from . import kb
@@ -180,7 +181,7 @@ def preview_retrieval(
         raise HTTPException(status_code=404, detail="pipeline not found")
     source_ids = [uuid.UUID(s) for s in pipeline.source_ids]
 
-    adapter = get_model_adapter()
+    adapter = get_model_adapter(db, settings.gemini_embedding_model)
     vector_hits: list[vectors.ChunkHit] = []
     mode_notes: list[str] = []
     if adapter is None:

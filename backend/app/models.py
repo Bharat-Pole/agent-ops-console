@@ -235,6 +235,10 @@ class ModelCatalogEntry(Base):
     max_risk_tier: Mapped[str] = mapped_column(String(20), default="high")  # highest tier allowed to use it
     status: Mapped[str] = mapped_column(String(20), default="active")       # active | disabled
     fallback_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Vault secret NAME holding this model's API key — same contract as tools.
+    # Lets keys rotate without a restart and lets different teams/agents run on
+    # different credentials. Falls back to the bootstrap env var when unset.
+    credential_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
