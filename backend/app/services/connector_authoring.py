@@ -26,7 +26,15 @@ from typing import Any
 from app.repositories import audit_repo, connectors_repo
 
 # Mirrors McpTransport / McpAuthMode in src/types/assets.ts.
-TRANSPORTS = ("sse", "stdio", "http")
+#
+# Phase 5A (D8): `streamable_http` added as the spec-current remote binding.
+# `sse` and `http` are retained as **accepted but deprecated** input — five
+# seeded connectors use `sse://`, and dropping the value outright would make
+# existing rows unreadable and unpatchable. New connectors should use
+# `streamable_http` or `stdio`, the only two bindings MCP spec 2026-07-28
+# defines as standard.
+TRANSPORTS = ("streamable_http", "stdio", "sse", "http")
+DEPRECATED_TRANSPORTS = ("sse", "http")
 AUTH_MODES = ("secret_manager", "oauth", "none")
 
 # Fields an update may touch. `status`, `tools_provided` and `last_healthcheck`
@@ -43,7 +51,14 @@ EDITABLE = ("name", "transport", "endpoint", "auth_mode")
 #
 # `stdio` has no network endpoint; it is a command line, so it is only checked
 # for non-emptiness.
-_SCHEMES = {"sse": ("sse://", "http://", "https://"), "http": ("http://", "https://")}
+#
+# `streamable_http` is http(s) only — it is a plain HTTP endpoint, and it is the
+# transport `connector_health.is_live_endpoint()` will actually try to reach.
+_SCHEMES = {
+    "streamable_http": ("http://", "https://"),
+    "sse": ("sse://", "http://", "https://"),
+    "http": ("http://", "https://"),
+}
 
 
 def _now_iso() -> str:

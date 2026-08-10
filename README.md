@@ -10,6 +10,49 @@ Built to the _Agent Ops Console Master Build Specification v1.0_. Core thesis
 same canonical config; an agent is **LIVE only when all three tracks — Registry,
 Runtime, Content — are green.**
 
+> ## ⚠️ This is a local proof of concept
+>
+> **Run it on localhost. Do not deploy it, and do not read the feature list above
+> as a description of a production system.** Much of the console is a
+> deterministic client-side simulation; a growing subset is genuinely
+> server-persisted. The two are not distinguishable by looking at the UI, which
+> is exactly why this note exists.
+>
+> **What is real:** the data model, the governance rules and the persistence
+> behind agents, approvals, the audit log, eval packs, tools, MCP connectors, the
+> connector backlog and the tool-call trail. Governance is enforced server-side
+> and re-validated independently of anything the client sends. **The MCP client
+> speaks the real protocol** (spec revision 2026-07-28), and every tool call runs
+> through a policy gateway that enforces eleven checkpoints deny-by-default and
+> performs the invocation itself.
+>
+> **What that buys, said precisely:** a tool-call row is *authoritative for every
+> call that passes through the gateway* — not more than that. The table
+> distinguishes three shapes so the claim cannot quietly widen: client-reported
+> rows, gateway-enforced rows whose tool body was simulated, and rows from a real
+> MCP round trip. Only the last carries a latency that measures a real system,
+> and the UI labels all three.
+>
+> **What is simulated:** knowledge sources, prompts, onboarding drafts,
+> jobs/telemetry, and the provisioning/pipeline/eval animations. The onboarding
+> "synthesis engine" is rule-based, not a model call, despite looking like one.
+>
+> **Known limits, stated rather than hidden:**
+> - **No authentication and wildcard CORS.** Localhost only.
+> - **Identity: the enforcement is real, the principal is not.** The gateway
+>   enforces a genuine per-connector allowlist against a console persona rather
+>   than a federated IdP subject. Both halves matter.
+> - **The counterparty is a local reference MCP server**, not a Brightspeed
+>   system. Our half of the wire is real; the far side is `localhost`.
+> - **The model layer is not the approved target stack** — the engagement
+>   constrains it to Vertex AI. Anthropic/OpenAI here are a local stand-in.
+> - **No browser-automated verification exists**; correctness is evidenced by
+>   backend suites and typecheck, not click-throughs.
+>
+> Using sandbox and stub approaches at this stage is deliberate and contractually
+> sanctioned, not a shortcut — but nothing here should be presented as
+> production-ready.
+
 ## Stack
 
 Vite · React 18 · TypeScript (strict) · react-router-dom v6 · Zustand · Tailwind
@@ -98,10 +141,18 @@ folded into steps 4, 7, and 8).
 8. **Playground** — pick a live agent. Ask _"Summarize the latest incident"_ (a
    grounded answer citing `kb://… · INC-…` with a retrieval trace), then _"Delete
    all records"_ (the advisory-only refusal). Open the **Regulatory Filing
-   Coordinator** (Critical path) and make a tool call — approve the **runtime HITL
-   gate**. Then, in **Knowledge & RAG → Sources**, click **Trigger refresh** on
-   _Capacity Reports_ — its Content pill animates ⏳→✓ through the 7-stage pipeline
-   and any Playground Demo-Mode banner auto-clears (causality #3).
+   Coordinator** (Critical path), send _"check filing_reader"_, and **Deny** the
+   **runtime HITL gate** — the denial is now enforced server-side at the gateway's
+   `hitl` checkpoint, not by the UI declining to send. Then, in **Knowledge & RAG
+   → Sources**, click **Trigger refresh** on _Capacity Reports_ — its Content pill
+   animates ⏳→✓ through the 7-stage pipeline and any Playground Demo-Mode banner
+   auto-clears (causality #3).
+
+   **8a. Tools & MCP → Tool Calls** — the call you just denied is a row, badged
+   **denied** with the checkpoint that refused it. Filter **Evidence →
+   client-reported** vs **gateway-enforced** to see the distinction the platform
+   refuses to blur: a reported result is a claim, an observed one was measured
+   here. (Causality #5: every tool call routes through the policy gateway.)
 9. **Evaluations → Contract Clause Finder** — it scores **82** (two grounding cases
    fail because `score_threshold` is mis-set to 0.95). Click **Fix score_threshold →
    0.75 & re-run** → it flips to **94** and the Deep-path promotion lock clears.

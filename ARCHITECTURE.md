@@ -5,6 +5,45 @@ script) and `CLAUDE.md` (session conventions + current status). It exists so a
 new contributor — human or Claude — can understand *how the system is built*
 without re-deriving it from scratch.
 
+## 0. Scope — this is a local POC, and the boundary is deliberate
+
+**Everything below describes a proof of concept that runs on one machine.** The
+boundary is not accidental, and knowing where it sits is the difference between
+reading this document correctly and overestimating the system.
+
+**The governing rule:** *never simulate the thing being demonstrated; simulate
+only what sits on the far side of it.* Our half of every interaction — the data
+model, the governance checks, the persistence, the audit writer, the MCP client
+— is real code that would not change when a production endpoint replaces a local
+one. What may be local is the **counterparty**: whether a conformant MCP server
+answers on `localhost` or at a vendor's URL changes an endpoint and an auth mode,
+not the protocol code that talks to it.
+
+This yields a test you can apply to any part of the system: **a fake healthcheck
+that always returns green is dishonest, because health is the thing being shown.
+A local MCP server answering a genuine `tools/list` is not, because the exchange
+is real and the server is merely nearby.**
+
+| | Status in the POC |
+|---|---|
+| Data model, governance rules, persistence | **Real.** Enforced server-side, re-validated independently of client input |
+| MCP protocol code (client, discovery, health probing) | **Real.** Spec revision 2026-07-28 via the official SDK |
+| Counterparty MCP servers | **Local.** A reference server under `backend/reference_mcp/` |
+| Business data behind those servers | **Synthetic.** No real customer or client data, by design |
+| Identity | **Enforcement real, principal simulated** — persona switcher, not an IdP |
+| Auth layer, CORS, network perimeter | **Absent.** Deployment-layer concern; localhost only |
+| Model layer | **Stand-in.** Not the engagement's approved stack |
+
+Two consequences worth carrying:
+
+1. **The seam must stay a single, obvious, swappable boundary** — one endpoint,
+   one auth mode, one transport. If POC-only assumptions leak past it into the
+   client or the gateway, the "implementation-ready" claim stops being true, and
+   that is the only promise this codebase actually makes.
+2. **Simulated parts must stay labelled in the UI and in the data**, never
+   silently indistinguishable from real ones. A connector with a real endpoint
+   and one without must not display identical evidence of health.
+
 ## 1. The big picture
 
 This is a **hybrid** app: a fully-featured client-side simulation that is
@@ -1144,3 +1183,305 @@ No regressions: `verify_connectors.py` 51 · `verify_tool_calls.py` 58 ·
 `npm run build` clean.
 
 **Not verified:** the browser click-through — `CONCERNS.md` **V7**.
+
+---
+
+## 15. The real MCP client — Phase 5A
+
+**This is the first code in the project that speaks MCP.** Everything in §8–§14
+simulated the protocol; this section is the wire.
+
+Target revision is **2026-07-28**, via the official Python SDK
+(`mcp>=2.0,<3` — `CONCERNS.md` **Q9**, closed on measurement: v2 is the first
+line supporting this revision, v1 cannot). The client asserts the negotiated
+version rather than assuming it.
+
+### The pieces
+
+| File | Role |
+|---|---|
+| `backend/reference_mcp/server.py` | The **counterparty**, not the deliverable. A conformant read-only Jira-shaped server over synthetic data |
+| `backend/app/services/mcp_client.py` | Pure protocol adapter. `list_remote_tools()`, `probe()`, `validate_header_annotation()`. Writes nothing to the database |
+| `connector_health._discover_live()` | Persistence + governance. The only place discovery writes |
+| `backend/verify_mcp_client.py` | 69 assertions across four layers |
+
+The split matters: `mcp_client.py` touching no database is what lets the suite
+run its protocol assertions **in memory**, with no port, no subprocess and no
+Postgres. Only the persistence layer needs any of that.
+
+### Why the reference server serves five tools
+
+One listing exercises every outcome the discovery path can produce:
+
+| Tool | Declares | Outcome |
+|---|---|---|
+| `jira_issue_reader`, `jira_search`, `jira_project_reader` | `readOnlyHint: true` | Accepted, `write_capable=false` — bindable once approved |
+| `jira_issue_commenter` | *nothing* | Accepted, `write_capable=true` — **catalogued but never binds** |
+| `bad_header_reader` | invalid `x-mcp-header` | **Rejected and excluded** from the listing, with a warning |
+
+The last one is the reason to own the server rather than point at a public one:
+the spec says a client MUST reject malformed `x-mcp-header` annotations and
+exclude those tools while logging a warning, and a well-behaved public server
+will never let you prove you do it.
+
+### Three governance decisions at the boundary
+
+A remote server is an **untrusted counterparty**. Nothing it says may widen the
+permission model:
+
+1. **`write_capable = not readOnlyHint`** — deny-by-default. A server must
+   *explicitly* declare read-only. Silence means write-capable, which means
+   catalogued-but-unbindable. This is the single most important line in
+   `mcp_client.py`: a sloppy or hostile server produces unbindable tools rather
+   than quietly bindable ones.
+2. **`permission_ceiling` is always `read`.** Discovery cannot infer intent, and
+   `read` is the floor of the locked advisory enum. A human widens it later.
+3. **Discovery is not consent.** A discovered tool lands `pending` and
+   `upsert_discovered()` hardcodes that — a client-supplied `approval_state` is
+   not merged, it does not exist on this path.
+
+**A defect the suite caught:** the first version set `pending` but queued no
+approval item, so a discovered tool was visible, unbindable, and *unapprovable* —
+the queue is the only route to a decision. Anything landing `pending` must also
+be queued. That now happens on first discovery **and** when a write-capability
+change sends an approved tool back to pending.
+
+### Identity and idempotency
+
+Discovered tools are `{connector_id}.{remote_tool_id}` — deterministic so
+re-discovery updates rather than duplicates, namespaced so two connectors may
+serve a same-named tool, and legible so origin is obvious from the id alone.
+
+`remote_tool_id IS NULL` marks a seeded or console-authored tool. That
+distinction is load-bearing: orphan detection only considers rows that were
+actually advertised, so a hand-authored tool attached to a connector is never
+mistaken for an orphan.
+
+**Re-discovery preserves approval** — routine re-runs must not silently revoke a
+human decision — **unless `write_capable` changed**, which is a material change
+to what the tool does, so the prior approval no longer describes it.
+
+**Orphans are reported, never deleted.** A tool can be referenced by audit rows
+and tool-call history that must outlive it, and a transient outage must not
+erase the catalog.
+
+### Live vs simulated — the line that must stay visible
+
+**`streamable_http` is the opt-in signal for real traffic**
+(`connector_health.is_live_connector()`), not "the endpoint looks like a URL".
+
+That was a bug first: the original check treated any `https://` endpoint as
+reachable, and the seeded connectors carry plausible-but-unresolvable
+`https://…brightspeed.internal/…` addresses — so the first healthcheck marked
+every seeded connector **offline**. Gating on the spec-current transport means a
+connector opts in to being contacted, and the D8 migration can land
+incrementally.
+
+The distinction is stored, not just behavioural:
+
+- `connectors.last_probe` is non-NULL **if and only if** the most recent
+  healthcheck actually reached a socket. The simulated path *clears* it rather
+  than merely not writing it, so a connector that stops being live cannot keep
+  presenting stale evidence.
+- The UI badges every card **`live MCP`** or **`simulated`**, and shows the
+  measured protocol, latency and advertised count when real.
+
+A fabricated green tick on a connector nobody contacted is worse than no tick.
+
+### D7 and D8
+
+**D7 is closed.** A real `tools/list` writes tools with `connector_id` set, so
+the `undiscovered`/`orphaned` diff is finally reachable — it was structurally
+inert before, because nothing in the product could attach a tool to a connector.
+After a live listing `undiscovered` is always empty by construction: we just
+wrote everything the server advertised.
+
+**D8 is partially closed.** `streamable_http` is added and is the default for
+new connectors; `sse`/`http` remain **accepted but labelled deprecated** in both
+the enum and the form, because five seeded rows carry them and dropping the
+value would make existing rows unreadable and unpatchable.
+
+### Verification
+
+`verify_mcp_client.py` — **69 assertions** in four layers: protocol/conformance
+in memory, the header validator as a unit (the malformed shapes a live server
+will not produce), live Streamable HTTP probing, and persistence + governance
+through the API.
+
+**It creates real catalog rows and deletes them** (asyncpg, teardown only) —
+discovery writes four tools per run, and leaving those behind would pollute the
+Tool Catalog fast. It is the second suite after `verify_bound_tools_guard.py` to
+clean up after itself.
+
+The API layer **skips cleanly** if the reference server is not running, printing
+the command to start it, rather than failing with a confusing connection error.
+
+---
+
+## 16. The policy-enforcing gateway — Phase 6
+
+**Deck slide 21, elements 1, 4 and 5** — the MCP Gateway Pattern, Data Boundary
+Controls, and the Identity & Access Pattern. The last three unbuilt cells of the
+seven-element connectivity pattern.
+
+### What actually changes
+
+Every governance rule before this phase was enforced at **design time**.
+`bind_tool()` decides what an agent may be *configured* to use; the Phase 1
+audit trail records what a client *said* it then did. There was no point at
+which the platform stood between an agent and a system at the moment of the
+call.
+
+`services/tool_gateway.py` is that point. One route —
+`POST /v1/gateway/tool-call` — runs eleven checkpoints, deny-by-default, and
+only then performs the invocation **itself**. Because it performs the
+invocation, it starts its own clock and reads its own response, which is what
+closes the measurement half of `CONCERNS.md` **R7**.
+
+That last part is only reachable because Phase 5A exists. Without a real socket
+there is nothing to measure, which is exactly why the phases were built in this
+order.
+
+### The checkpoint chain
+
+Published at `GET /v1/gateway/policy` and rendered by the console from that
+response — the chain is served rather than restated in TypeScript, because a
+second copy is a second thing to keep in step with the enforcement, and the copy
+always loses.
+
+| # | Checkpoint | Denies when | Source |
+|---|---|---|---|
+| 1 | `identity` | the principal is absent or unknown | slide 21 el. 5 · Blueprint §8.1 |
+| 2 | `catalog` | the tool is not catalogued | Tool Registry |
+| 3 | `agent` | the agent is not registered | Agent Registry |
+| 4 | `write_capable` | the tool can write | slide 25 · SOW boundary |
+| 5 | `approval` | the tool is not `approved` | Blueprint §11 · Phase 3.2 |
+| 6 | `allowlist` | the tool is not in the agent's `bound_tools` | R8 guard |
+| 7 | `connector_health` | the serving connector is offline | Phase 0 resolver |
+| 8 | `identity_binding` | the connector declares approved identities and this is not one | slide 21 el. 5 |
+| 9 | `data_boundary` | the connector declares datasets and the call names none, or names one outside them | slide 21 el. 4 |
+| 10 | `hitl` | the agent is on the `critical` path and no human decided this call | slide 22 |
+| 11 | `rate_limit` | too many **allowed** calls for this (agent, tool) in the last 60s | Blueprint §3.4 |
+
+**The order is load-bearing**, in three places:
+
+- **Existence before policy.** You cannot evaluate a rule about a tool that is
+  not in the catalog, and "not found" is a more useful denial than a downstream
+  rule failing confusingly.
+- **`write_capable` before `approval`, mirroring `bind_tool()` exactly.** An
+  approved write-capable tool is denied *on write-capability*. If those two ever
+  swap, approval becomes a laundering path for the locked invariant. The
+  invariant now lives in two modules on purpose — design-time and run-time are
+  separate gates — which also means an exception path (`CONCERNS.md` Q6) is a
+  change in two places, not one.
+- **`rate_limit` last.** A call denied on governance grounds never reached the
+  system, so it must not consume the budget that exists to protect it.
+  `count_recent()` therefore counts `gateway = TRUE AND decision = 'allow'`
+  only.
+
+### Three design decisions worth not undoing
+
+**1. A denial is a 200 with a verdict, never a 4xx.** The gateway always writes
+a row and always returns a decision. Making denials into HTTP errors would mean
+the most valuable rows in the table are the ones a caller is encouraged to
+swallow and retry past — and a caller could then tell a denial from a network
+failure only by parsing prose. Only a request too malformed to attribute (no
+agent, no tool, unknown consumer) raises, because there is then nothing truthful
+to record. Same principle as `record_tool_call()` recording rather than
+rejecting an unauthorized call.
+
+**2. Empty policy means *undeclared*, not deny-all.** `allowed_datasets`,
+`allowed_fields` and `approved_identities` are empty on all five seeded
+connectors, and an empty list allows the call while recording the gap on the row
+and on the connector card. Deny-all-until-declared is the stricter-*looking*
+default and would have been enforcing a policy nobody wrote — none of those five
+has a real dataset inventory behind it. A gateway that blocked everything on day
+one gets switched off on day two, and that reads as a control being removed
+rather than completed. Tracked as a decision in `CONCERNS.md` **Q14**; the other
+eight checkpoints all have real data and deny properly.
+
+**3. A failed live call does not cascade into connector health.** One call
+failing is not a health verdict. `run_healthcheck()` owns `connectors.status`,
+and letting any timeout mark a connector offline would make the catalog flap
+under load — and take its served tools down with it, via the cascade.
+
+### Two field sets, two routes, two personas
+
+`PATCH /v1/connectors/:id` edits **how we reach** a server — name, transport,
+endpoint, auth. `PATCH /v1/connectors/:id/policy` declares **what it may expose
+and to whom** — datasets, fields, identities, service account, IAM principal,
+rate limit, timeout.
+
+They are disjoint, and the separation is enforced by two repository functions
+that physically cannot write each other's columns (`connectors_repo.update()`
+vs. `set_policy()`). An author who could widen their own data boundary is the
+hole the gateway exists to close. It is the same shape as the older rule that
+keeps `status` out of an author's hands, and as `tools.update_policy()` being
+unable to touch `permission_ceiling`.
+
+The audit personas differ too, deliberately: a connector edit is audited as the
+**Platform Engineer**, a policy change as the **Governance Officer**. In the log
+the persona is what tells the two acts apart.
+
+### How much a row can be trusted
+
+`tool_calls` keeps slide 21's eight fields unchanged and gains four that say how
+much the row is worth:
+
+| Row shape | Meaning |
+|---|---|
+| `gateway = FALSE` | client-reported — the Phase 1 path. Result and latency are claims |
+| `gateway = TRUE`, `invocation = 'none'` | denied at a checkpoint; `denied_by` names which. Nothing was invoked, so `latency_ms = 0` rather than a fabricated number |
+| `gateway = TRUE`, `invocation = 'simulated'` | policy fully enforced, tool body local. The **decision** is authoritative; the latency measures our own simulation |
+| `gateway = TRUE`, `invocation = 'live'` | a real MCP round trip. This, and only this, is runtime evidence |
+
+`gateway` is written `True` in exactly one function (`record_gateway_call`) and
+is not settable from any payload. The Tool Calls tab labels and filters the four
+shapes separately — merging them into one count is the easiest way to overclaim
+this workstream, so the schema makes it awkward and the UI makes it visible.
+
+### Identity: enforcement real, principal simulated
+
+`principal` is a persona from the console's own switcher, not a federated IdP
+subject. Both halves have to be said. Building an identity store is explicitly
+out of scope — the SOW's boundary table says *"will not build a separate user
+management or identity store … integrate with Brightspeed SSO / IdP"* — so the
+gateway enforces a real allowlist against a simulated subject, and
+`CONCERNS.md` **R6** records the rest.
+
+### The HITL gate moved server-side
+
+Before this phase the Playground's runtime HITL gate was client-side: denying it
+merely declined to send an `ok`, which protected the UI rather than the system.
+Now `governance_path = 'critical'` means the gateway denies unless the call
+carries an explicit human decision, and a denial is a row. `PlaygroundPage`
+passes the decision through instead of applying it.
+
+### Files
+
+| File | Role |
+|---|---|
+| `services/tool_gateway.py` | the chain, the invocation, the trace. The deliverable |
+| `services/connector_policy.py` | the write side of the boundary + identity fields |
+| `services/mcp_client.call_remote_tool()` | real `tools/call`, timed; a tool-level failure is data, not an exception |
+| `services/tool_call_log.record_gateway_call()` | the observed-row writer; hardcodes `gateway = True` |
+| `repositories/connectors_repo.set_policy()` | cannot write endpoint/status/name |
+| `repositories/tool_calls_repo.count_recent()` | the rate-limit window, counted from the audit trail rather than a second store |
+| `routes/gateway.py` | `POST /v1/gateway/tool-call`, `GET /v1/gateway/policy` |
+| `ToolsPage.tsx` → `ConnectorPolicyPanel`, `EvidenceBadge` | declare a policy; read a row's trustworthiness |
+| `PlaygroundPage.tsx` | invokes through the gateway rather than reporting afterwards |
+
+### Verification
+
+`verify_tool_gateway.py` — **215 assertions** in five layers: the published
+policy, a denial for **every one of the eleven checkpoints** (each asserted
+completely — verdict, checkpoint name, and the row it wrote), field-set
+isolation between the two PATCH routes, a live invocation against the reference
+MCP server with measured latency and field redaction over a real payload, and
+teardown.
+
+It creates a connector, discovered tools, an approval and a binding on a seeded
+agent, and removes all of it. It **deliberately leaves its `tool_calls` rows** —
+an audit trail that deletes its own evidence would be a strange thing to ship,
+and those rows are the artefact the phase produces. The live layer skips cleanly
+without the reference server.

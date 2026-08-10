@@ -16,6 +16,7 @@ from app.routes.approvals import router as approvals_router
 from app.routes.bootstrap import router as bootstrap_router
 from app.routes.chat import router as chat_router
 from app.routes.connectors import router as connectors_router
+from app.routes.gateway import router as gateway_router
 from app.routes.tools import router as tools_router
 from app.services.scheduler import start_scheduler
 
@@ -48,6 +49,7 @@ app.include_router(approvals_router)
 app.include_router(chat_router)
 app.include_router(tools_router)
 app.include_router(connectors_router)
+app.include_router(gateway_router)
 
 if os.environ.get("NODE_ENV") == "production":
     dist_dir = _ROOT_DIR / "dist"

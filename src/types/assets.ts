@@ -61,6 +61,11 @@ export interface ToolAsset {
   used_by: string[]; // agent_id[]
   // Canned fixtures the Playground uses to render a simulated tool result.
   result_fixtures?: string[];
+  // Phase 5A. Set only on tools discovered from an MCP server — the name that
+  // server uses for the tool. NULL marks a seeded or console-authored tool, and
+  // that distinction is what keeps discovery from orphaning hand-made tools.
+  remote_tool_id?: string | null;
+  discovered_at?: string | null;
 }
 
 // ---- Connector prioritization backlog (deck slide 21, element 7) ----------
@@ -100,11 +105,47 @@ export interface ConnectorBacklogItem {
 }
 
 // ---- MCP Connectors -------------------------------------------------------
-export type McpTransport = 'sse' | 'stdio' | 'http';
+// `streamable_http` and `stdio` are the only two bindings MCP spec 2026-07-28
+// defines as standard. `sse` and `http` remain in the union because five seeded
+// connectors still carry them and existing rows must stay readable — they are
+// deprecated input, not a live choice (CONCERNS.md D8). Only `streamable_http`
+// endpoints are actually probed over the wire.
+export type McpTransport = 'streamable_http' | 'stdio' | 'sse' | 'http';
 export type McpAuthMode = 'secret_manager' | 'oauth' | 'none';
 export type McpStatus = 'connected' | 'degraded' | 'offline';
 
-export interface McpConnector {
+// Evidence from a real MCP probe (Phase 5A). Its ABSENCE is the meaningful
+// case: a connector with no `last_probe` has never been contacted over the
+// wire, and its status came from the simulated roll. The UI must be able to
+// tell those apart — a fabricated green tick is worse than no tick.
+export interface McpProbe {
+  ok: boolean;
+  latency_ms: number;
+  protocol_version: string | null;
+  tool_count: number;
+  error: string | null;
+  at: string;
+}
+
+// Phase 6 — the gateway policy a connector declares (deck slide 21 elements 4
+// and 5). Written only through `PATCH /v1/connectors/:id/policy`, read only by
+// the gateway. Deliberately disjoint from the four author-owned fields above:
+// whoever can move an endpoint must not also be able to widen a data boundary.
+//
+// **An empty array means "not declared", never "nothing allowed."** The gateway
+// records an undeclared boundary as a warning on every call, so the gap is
+// visible rather than either silent or fictional.
+export interface McpGatewayPolicy {
+  allowed_datasets: string[];
+  allowed_fields: string[];
+  approved_identities: string[]; // persona ids — enforcement real, principal simulated
+  service_account: string | null;
+  iam_principal: string | null;
+  rate_limit_per_min: number;
+  timeout_ms: number;
+}
+
+export interface McpConnector extends McpGatewayPolicy {
   id: string;
   name: string;
   transport: McpTransport;
@@ -113,6 +154,7 @@ export interface McpConnector {
   status: McpStatus;
   tools_provided: string[]; // tool_id[]
   last_healthcheck: string;
+  last_probe?: McpProbe | null; // null/undefined = never probed for real
 }
 
 // ---- Knowledge Sources (the 5.12 group verbatim + entity metadata) --------

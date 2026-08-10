@@ -29,6 +29,10 @@ export default function PlaygroundPage() {
   const navigate = useNavigate();
   const agents = useWorkspace((s) => s.agents);
   const tools = useWorkspace((s) => s.tools);
+  // Phase 6 — the identity the gateway enforces against. The persona switcher
+  // is the identity source for this POC: the *enforcement* is real, the
+  // principal is simulated, and both halves have to be said (CONCERNS R6).
+  const principal = useWorkspace((s) => s.ui.persona);
 
   const selected = agents.find((a) => agentId(a) === paramId) ?? null;
 
@@ -58,13 +62,23 @@ export default function PlaygroundPage() {
       const needsHitl = response.toolCalls[0]?.requiresHitl;
       setTurns((t) => [...t, { role: 'agent', text: response.text, response, approved: needsHitl ? null : true, requestId, latencyMs }]);
 
-      // Slide 21 element 6 — the tool-call audit trail. Fire-and-forget: the
-      // trail must never delay or fail the conversation that produced it.
-      // A HITL-gated call is still pending here, so it is logged at the
-      // decision instead (see decideHitl).
+      // Phase 6 — tool calls now go through the policy gateway rather than
+      // being *reported* to the audit trail after the fact. The server runs the
+      // eleven checkpoints, performs the invocation, and times it itself, which
+      // is what makes the resulting row runtime evidence instead of a claim.
+      //
+      // Still fire-and-forget: a chat must never fail because governance was
+      // slow. The verdict lands on the Tool Calls tab either way — including a
+      // denial, which is the row worth having.
+      //
+      // A HITL-gated call is deliberately NOT sent here. It is pending a human,
+      // and the gateway would (correctly) deny it for exactly that reason; the
+      // call is made at the decision instead (see decideHitl).
       if (!needsHitl) {
         for (const tc of response.toolCalls) {
-          void api.recordToolCall({ agentId: id, toolInvoked: tc.tool_id, consumer: 'playground', resultStatus: 'ok', latencyMs, requestId });
+          void api.callToolThroughGateway({
+            agentId: id, toolId: tc.tool_id, consumer: 'playground', principal, requestId,
+          });
         }
       }
     } finally {
@@ -76,16 +90,19 @@ export default function PlaygroundPage() {
     setTurns((t) => t.map((turn, i) => (i === idx ? { ...turn, approved: approve } : turn)));
     const turn = turns[idx];
     if (!turn?.response || !selected) return;
-    // A denied gate is evidence, not a non-event — it lands as `blocked`.
+    // The human decision is carried to the gateway rather than applied here.
+    // Before Phase 6 this gate was client-side: denying it merely declined to
+    // send an `ok`, which protected the UI rather than the system. Now the
+    // server holds the gate — `hitlApproved: false` is denied at the `hitl`
+    // checkpoint, and the denial is the row.
     for (const tc of turn.response.toolCalls) {
-      void api.recordToolCall({
+      void api.callToolThroughGateway({
         agentId: agentId(selected),
-        toolInvoked: tc.tool_id,
+        toolId: tc.tool_id,
         consumer: 'playground',
-        resultStatus: approve ? 'ok' : 'blocked',
-        latencyMs: turn.latencyMs ?? 0,
+        principal,
         requestId: turn.requestId,
-        exceptionDetail: approve ? null : 'Denied at the runtime HITL gate — no result executed.',
+        hitlApproved: approve,
       });
     }
   };

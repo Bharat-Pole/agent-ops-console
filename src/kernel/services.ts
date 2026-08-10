@@ -17,7 +17,7 @@ import { synthesize as runEngine } from './engine';
 import { generatePlaygroundResponse, resolvePromptRef, type MessageKind, type PlaygroundResponse, type RetrievalChunk } from './playground';
 import type {
   AgentRecord, AuditEvent, ConnectorBacklogItem, EvalResult, EvaluationPack, McpConnector,
-  PipelineRun, ToolAsset,
+  McpGatewayPolicy, PipelineRun, ToolAsset,
 } from '@/types';
 import { agentId, isLive } from '@/types';
 
@@ -35,6 +35,15 @@ export interface ConnectorToolsResponse {
   tools: ToolAsset[];
   undiscovered: string[]; // advertised by the connector, absent from the catalog
   orphaned: string[];     // catalogued against this connector, no longer advertised
+  // Phase 5A. `live` distinguishes a real `tools/list` over the wire from a
+  // read-back of what the catalog already held. When true, `undiscovered` is
+  // always empty (we just wrote everything the server advertised) and
+  // `rejected` carries definitions the client refused as non-conformant.
+  live?: boolean;
+  rejected?: { name: string | null; reason: string; detail: string }[];
+  created?: string[];     // tool ids that did not exist before this discovery
+  protocol_version?: string | null;
+  server_info?: { name: string | null; version: string | null } | null;
 }
 
 // Tool-call audit trail — deck slide 21 element 6's eight fields. `system_accessed`
@@ -51,6 +60,71 @@ export interface ToolCallRecord {
   exception_detail: string | null;
   permission: string;
   at: string;
+  // ---- Phase 6: how much this row can be trusted --------------------------
+  // `gateway` is the load-bearing field. false = a client reported this call
+  // (the Phase 1 path, still live), so result and latency are claims. true =
+  // every checkpoint ran server-side and the outcome was observed there.
+  // `invocation: 'live'` narrows it further: only then is `latency_ms` a real
+  // system's latency rather than our own simulation's. CONCERNS R7.
+  gateway: boolean;
+  decision: 'allow' | 'deny' | null;
+  denied_by: string | null;   // the checkpoint id that refused
+  invocation: 'live' | 'simulated' | 'none' | null;
+  principal: string | null;
+  team: string | null;
+  redacted_fields: string[];
+}
+
+// One checkpoint in the gateway chain. Served by the backend rather than
+// restated here — a second copy in TypeScript is a second thing to keep in step
+// with the enforcement, and the copy always loses.
+export interface GatewayCheckpoint {
+  id: string;
+  label: string;
+  source: string;      // the deck slide / Blueprint section it comes from
+  description: string;
+}
+
+// What one checkpoint did on one call. `skipped` is a real outcome, not a gap:
+// a local tool has no connector to be unreachable and no boundary to cross.
+export interface GatewayTraceEntry {
+  checkpoint: string;
+  status: 'pass' | 'warn' | 'deny' | 'skipped';
+  detail: string | null;
+}
+
+export interface GatewayPolicyResponse {
+  checkpoints: GatewayCheckpoint[];
+  principals: string[];
+  rateWindowSeconds: number;
+  policies: (McpGatewayPolicy & {
+    connector_id: string;
+    name: string;
+    status: string;
+    live: boolean;
+    undeclared: string[]; // policy fields nobody has written yet
+  })[];
+}
+
+// A denied call is a 200 with `allowed: false`, never an HTTP error — see
+// backend routes/gateway.py for why.
+export interface GatewayCallResponse {
+  allowed: boolean;
+  decision: 'allow' | 'deny';
+  deniedBy: string | null;
+  reason: string | null;
+  checkpoints: GatewayTraceEntry[];
+  warnings: string[];
+  result: {
+    invocation: 'live' | 'simulated';
+    content: string | null;
+    structured: unknown;
+    error: string | null;
+    latencyMs: number;
+  } | null;
+  redacted: string[];
+  toolCall: ToolCallRecord;
+  auditEvent?: AuditEvent | null;
 }
 
 // An agent's MCP dependency set — the connectors its bound tools resolve to.
@@ -670,13 +744,83 @@ export const services = {
     return data.toolCall;
   },
 
+  // POST /v1/gateway/tool-call — Phase 6. The only governed way to *invoke* a
+  // tool, as opposed to `recordToolCall` above, which only reports that one
+  // happened. Eleven checkpoints run server-side, the server performs the
+  // invocation, and the row it writes carries an observed result and a measured
+  // latency.
+  //
+  // NOT fire-and-forget, unlike recordToolCall: the caller needs the verdict,
+  // because a denial means there is no result to show. And a denial arrives as
+  // a 200 with `allowed: false` — `ok` here is about reaching the server, not
+  // about the gateway's decision.
+  async callToolThroughGateway(input: {
+    agentId: string;
+    toolId: string;
+    principal: string;
+    consumer?: 'playground' | 'api' | 'workflow' | 'console';
+    arguments?: Record<string, unknown>;
+    dataset?: string;
+    team?: string;
+    requestId?: string;
+    hitlApproved?: boolean;
+  }): Promise<GatewayCallResponse | null> {
+    const { ok, data } = await postJson<GatewayCallResponse & { message?: string }>('/v1/gateway/tool-call', input);
+    if (!ok || !data?.toolCall) {
+      ws().pushToast('err', data?.message ?? 'Could not reach the gateway.');
+      return null;
+    }
+    if (data.auditEvent) ws().addAuditEvent(data.auditEvent);
+    return data;
+  },
+
+  // GET /v1/gateway/policy — the checkpoint chain and each connector's declared
+  // policy. Read-only, and the chain is served rather than restated in the
+  // client so the console cannot disagree with the enforcement about what the
+  // checks are or what order they run in.
+  async getGatewayPolicy(): Promise<GatewayPolicyResponse | null> {
+    try {
+      const res = await fetch('/v1/gateway/policy');
+      if (!res.ok) return null;
+      return (await res.json()) as GatewayPolicyResponse;
+    } catch {
+      ws().pushToast('err', 'Could not reach the server — gateway policy unavailable.');
+      return null;
+    }
+  },
+
+  // PATCH /v1/connectors/:id/policy — declare the data boundary and identity
+  // binding (slide 21 elements 4 and 5). A different route from
+  // `updateConnector` on purpose: that edits how we reach a server, this
+  // declares what it may expose and to whom.
+  async updateConnectorPolicy(connectorId: string, patch: Partial<McpGatewayPolicy>): Promise<McpConnector | null> {
+    const store = ws();
+    try {
+      const res = await fetch(`/v1/connectors/${encodeURIComponent(connectorId)}/policy`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = (await res.json().catch(() => null)) as { connector?: McpConnector; auditEvent?: AuditEvent; changed?: string[]; message?: string } | null;
+      if (!res.ok || !data?.connector) { store.pushToast('err', data?.message ?? 'Could not update the policy.'); return null; }
+      store.patchConnector(connectorId, data.connector);
+      if (data.auditEvent) store.addAuditEvent(data.auditEvent);
+      store.pushToast(data.changed?.length ? 'ok' : 'info', data.changed?.length ? `Gateway policy updated (${data.changed.join(', ')}).` : 'No changes.');
+      return data.connector;
+    } catch {
+      store.pushToast('err', 'Could not reach the server — policy update failed.');
+      return null;
+    }
+  },
+
   // GET /v1/tool-calls — newest first, filters ANDed server-side.
-  async listToolCalls(filter?: { agentId?: string; toolId?: string; status?: string; limit?: number }): Promise<ToolCallRecord[] | null> {
+  async listToolCalls(filter?: { agentId?: string; toolId?: string; status?: string; limit?: number; gateway?: boolean }): Promise<ToolCallRecord[] | null> {
     const qs = new URLSearchParams();
     if (filter?.agentId) qs.set('agentId', filter.agentId);
     if (filter?.toolId) qs.set('toolId', filter.toolId);
     if (filter?.status) qs.set('status', filter.status);
     if (filter?.limit) qs.set('limit', String(filter.limit));
+    if (filter?.gateway !== undefined) qs.set('gateway', String(filter.gateway));
     try {
       const res = await fetch(`/v1/tool-calls${qs.toString() ? `?${qs}` : ''}`);
       if (!res.ok) return null;

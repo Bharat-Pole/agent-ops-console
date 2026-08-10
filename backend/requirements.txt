@@ -4,3 +4,7 @@ asyncpg
 python-dotenv
 anthropic
 openai
+# Official MCP SDK. v2 is the first line supporting spec revision 2026-07-28
+# (stateless core, no `initialize` handshake). Pinned <3 deliberately: v1 and v2
+# are not API-compatible, and v1 cannot speak this revision. See CONCERNS Q9.
+mcp>=2.0,<3

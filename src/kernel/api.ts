@@ -89,6 +89,11 @@ export const api = {
   listAgentConnectors: services.listAgentConnectors, // agent → MCP dependency set
   recordToolCall: services.recordToolCall, // slide 21 element 6 — tool-call audit trail
   listToolCalls: services.listToolCalls,
+  // Phase 6 — the policy-enforcing gateway (slide 21 elements 1, 4, 5).
+  // `callToolThroughGateway` invokes; `recordToolCall` above only reports.
+  callToolThroughGateway: services.callToolThroughGateway,
+  getGatewayPolicy: services.getGatewayPolicy,
+  updateConnectorPolicy: services.updateConnectorPolicy,
   proposeConfigChange: services.proposeConfigChange,
   enableDemoMode: services.enableDemoMode,
   chatWithAgent: services.chatWithAgent,

@@ -8,7 +8,7 @@ import { api } from '@/kernel/api';
 import { PERMISSION_MATRIX } from '@/kernel/constants';
 import { agentId, ADVISORY_PERMISSIONS, type ToolAsset, type ToolPermission, type ToolRiskLevel, type McpConnector, type McpTransport, type McpAuthMode, type ConnectorBacklogItem } from '@/types';
 import { fmtDateTime } from '@/utils/format';
-import { Ban, Radio, Power, Activity, Loader2, Plus, Sparkles, Search, RefreshCw, Pencil, ShieldCheck, Clock, XCircle, Grid3x3 } from 'lucide-react';
+import { Ban, Radio, Power, Activity, Loader2, Plus, Sparkles, Search, RefreshCw, Pencil, ShieldCheck, Clock, XCircle, Grid3x3, ShieldHalf, Waypoints } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type { ConnectorToolsResponse, ToolCallRecord, ConnectorBacklogResponse } from '@/kernel/services';
 
@@ -490,16 +490,23 @@ function McpConnectors() {
   );
 }
 
+// New connectors default to `streamable_http` — the spec-current remote binding,
+// and the only transport the server will actually probe over the wire.
 const EMPTY_CONNECTOR_FORM: { name: string; transport: McpTransport; endpoint: string; auth_mode: McpAuthMode } = {
-  name: '', transport: 'http', endpoint: '', auth_mode: 'secret_manager',
+  name: '', transport: 'streamable_http', endpoint: '', auth_mode: 'secret_manager',
 };
 
 // `stdio` has no network endpoint — it is a command line, so no scheme is enforced.
 const ENDPOINT_HINT: Record<McpTransport, string> = {
+  streamable_http: 'https://mcp.your-system.brightspeed.internal/mcp',
   http: 'https://mcp.your-system.brightspeed.internal/v1',
   sse: 'sse://mcp.your-system.brightspeed.internal/v1',
   stdio: 'npx -y @your-org/mcp-server',
 };
+
+// Deprecated bindings, kept selectable only because seeded connectors carry
+// them (CONCERNS.md D8). Labelled in the form so nobody picks one by accident.
+const DEPRECATED_TRANSPORTS: McpTransport[] = ['sse', 'http'];
 
 // Register or edit an MCP server (Blueprint §3.5). Deliberately does NOT expose
 // `status` or `tools_provided`: status belongs to the health cascade, and
@@ -556,8 +563,16 @@ function ConnectorModal({ open, connector, onClose }: { open: boolean; connector
           <div>
             <div className="mb-1 text-[12px] font-medium text-text-mid">Transport</div>
             <select value={form.transport} onChange={(e) => setForm((f) => ({ ...f, transport: e.target.value as McpTransport }))} className="w-full rounded-control border border-border bg-canvas px-2.5 py-2 text-[13px] text-text-hi focus-ring">
-              {(['http', 'sse', 'stdio'] as McpTransport[]).map((t) => <option key={t} value={t}>{t}</option>)}
+              {(['streamable_http', 'stdio', 'sse', 'http'] as McpTransport[]).map((t) => (
+                <option key={t} value={t}>{t}{DEPRECATED_TRANSPORTS.includes(t) ? ' (deprecated)' : ''}</option>
+              ))}
             </select>
+            {DEPRECATED_TRANSPORTS.includes(form.transport) && (
+              <div className="mt-1 text-[11px] text-warn">
+                Deprecated binding. MCP spec 2026-07-28 defines only <b>streamable_http</b> and <b>stdio</b>; only
+                streamable_http connectors are contacted for real.
+              </div>
+            )}
           </div>
           <div>
             <div className="mb-1 text-[12px] font-medium text-text-mid">Auth mode</div>
@@ -597,6 +612,7 @@ function ConnectorCard({ connector: c, onEdit }: { connector: McpConnector; onEd
   const [toggling, setToggling] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [discovery, setDiscovery] = useState<ConnectorToolsResponse | null>(null);
+  const [showPolicy, setShowPolicy] = useState(false);
 
   const busy = checking || toggling || discovering;
   const servedOffline = tools.filter((t) => t.connector_id === c.id && t.status !== 'available').length;
@@ -613,6 +629,10 @@ function ConnectorCard({ connector: c, onEdit }: { connector: McpConnector; onEd
           <span className={cn('h-2.5 w-2.5 rounded-full', dot(c.status))} />
           <span className="text-[14px] font-semibold text-text-hi">{c.name}</span>
           <Badge tone={c.status === 'connected' ? 'ok' : c.status === 'degraded' ? 'warn' : 'err'}>{c.status}</Badge>
+          {/* Phase 5A. A status derived from a real round trip and one derived
+              from a simulated roll must never look identical — the whole point
+              of storing probe evidence is that the UI can tell them apart. */}
+          <Badge tone={c.last_probe ? 'ok' : 'neutral'}>{c.last_probe ? 'live MCP' : 'simulated'}</Badge>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={onEdit} title="Edit connector" className="text-text-low hover:text-text-hi"><Pencil size={13} /></button>
@@ -625,6 +645,14 @@ function ConnectorCard({ connector: c, onEdit }: { connector: McpConnector; onEd
         <div className="flex justify-between"><span className="text-text-low">auth_mode</span><span className="text-text-hi">{c.auth_mode}</span></div>
         <div className="flex justify-between"><span className="text-text-low">tools provided</span><span className="mono text-[11px] text-text-mid">{c.tools_provided.join(', ')}</span></div>
         <div className="flex justify-between"><span className="text-text-low">last healthcheck</span><span className="text-text-mid">{fmtDateTime(c.last_healthcheck)}</span></div>
+        {c.last_probe && (
+          <div className="flex justify-between">
+            <span className="text-text-low">last probe</span>
+            <span className="mono text-[11px] text-ok">
+              MCP {c.last_probe.protocol_version} · {c.last_probe.latency_ms}ms · {c.last_probe.tool_count} advertised
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -639,7 +667,12 @@ function ConnectorCard({ connector: c, onEdit }: { connector: McpConnector; onEd
         <Button variant="subtle" size="sm" disabled={busy}
           icon={discovering ? <Loader2 size={13} className="animate-spin-slow" /> : <Search size={13} />}
           onClick={() => run(setDiscovering, async () => setDiscovery(await api.listConnectorTools(c.id)))}>Discover tools</Button>
+        <Button variant="subtle" size="sm" icon={<ShieldHalf size={13} />} onClick={() => setShowPolicy((v) => !v)}>
+          {showPolicy ? 'Hide' : 'Gateway'} policy
+        </Button>
       </div>
+
+      {showPolicy && <ConnectorPolicyPanel connector={c} />}
 
       {c.status === 'offline' && <div className="mt-2 text-[11px] text-err">Offline → Pre-Flight hard blocker #4 (MCP connectors available) is now red.</div>}
       {servedOffline > 0 && (
@@ -651,16 +684,45 @@ function ConnectorCard({ connector: c, onEdit }: { connector: McpConnector; onEd
       {discovery && (
         <div className="mt-3 rounded-card border border-border bg-raised/40 px-3 py-2">
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-[12px] font-semibold text-text-hi">MCP tools/list</span>
+            <span className="text-[12px] font-semibold text-text-hi">
+              MCP tools/list
+              {discovery.live && discovery.protocol_version && (
+                <span className="ml-1.5 font-normal text-ok">· live, spec {discovery.protocol_version}</span>
+              )}
+              {discovery.live === false && <span className="ml-1.5 font-normal text-text-low">· from catalog (no live endpoint)</span>}
+            </span>
             <button onClick={() => setDiscovery(null)} className="text-[11px] text-text-low hover:text-text-hi">dismiss</button>
           </div>
           <div className="space-y-0.5 text-[11px]">
             {discovery.tools.map((t) => (
-              <div key={t.id} className="flex justify-between">
-                <span className="mono text-text-mid">{t.id}</span>
-                <Badge tone={STATUS_TONE[t.status] ?? 'neutral'}>{t.status}</Badge>
+              <div key={t.id} className="flex items-center justify-between gap-2">
+                <span className="mono truncate text-text-mid">{t.id}</span>
+                <span className="flex shrink-0 items-center gap-1">
+                  {t.write_capable && <Badge tone="err">write</Badge>}
+                  {t.approval_state === 'pending' && <Badge tone="warn">pending</Badge>}
+                  <Badge tone={STATUS_TONE[t.status] ?? 'neutral'}>{t.status}</Badge>
+                </span>
               </div>
             ))}
+            {/* Definitions the client refused. Reported, never silently
+                dropped: a connector serving malformed tools is a fact an
+                operator needs, and hiding it would make the exclusion look
+                like the tool never existed. */}
+            {(discovery.rejected?.length ?? 0) > 0 && (
+              <div className="mt-1.5 border-t border-border pt-1.5">
+                <div className="text-err">Rejected as non-conformant — excluded from discovery:</div>
+                {discovery.rejected!.map((r) => (
+                  <div key={r.name ?? r.detail} className="mono text-[10px] text-text-low">
+                    {r.name ?? '(unnamed)'} — {r.detail}
+                  </div>
+                ))}
+              </div>
+            )}
+            {(discovery.created?.length ?? 0) > 0 && (
+              <div className="mt-1 text-ok">
+                {discovery.created!.length} tool(s) added to the catalog, pending approval.
+              </div>
+            )}
             {discovery.undiscovered.length > 0 && (
               <div className="mt-1 text-warn">Advertised but not catalogued: <span className="mono">{discovery.undiscovered.join(', ')}</span></div>
             )}
@@ -674,6 +736,117 @@ function ConnectorCard({ connector: c, onEdit }: { connector: McpConnector; onEd
         </div>
       )}
     </Card>
+  );
+}
+
+// ---- Gateway policy editor (Phase 6 — slide 21 elements 4 and 5) ----------
+//
+// Deliberately a separate panel from `ConnectorModal`, mirroring the two
+// backend routes: that form edits *how we reach* a server (name, transport,
+// endpoint, auth), this one declares *what it may expose and to whom*. The
+// separation is the point — an author who could widen their own data boundary
+// is the hole the gateway exists to close.
+//
+// Empty means UNDECLARED, not deny-all, and the panel says so rather than
+// showing a reassuring empty state. An undeclared boundary is a real governance
+// gap; making it look like a configured one would be the worst thing this
+// screen could do.
+
+function ConnectorPolicyPanel({ connector: c }: { connector: McpConnector }) {
+  const [datasets, setDatasets] = useState<string[]>(c.allowed_datasets ?? []);
+  const [fields, setFields] = useState<string[]>(c.allowed_fields ?? []);
+  const [identities, setIdentities] = useState<string[]>(c.approved_identities ?? []);
+  const [serviceAccount, setServiceAccount] = useState(c.service_account ?? '');
+  const [iamPrincipal, setIamPrincipal] = useState(c.iam_principal ?? '');
+  const [rateLimit, setRateLimit] = useState(String(c.rate_limit_per_min ?? 60));
+  const [timeout, setTimeoutMs] = useState(String(c.timeout_ms ?? 10000));
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.updateConnectorPolicy(c.id, {
+        allowed_datasets: datasets,
+        allowed_fields: fields,
+        approved_identities: identities,
+        service_account: serviceAccount.trim() || null,
+        iam_principal: iamPrincipal.trim() || null,
+        rate_limit_per_min: Number(rateLimit) || 60,
+        timeout_ms: Number(timeout) || 10000,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const gaps = [
+    identities.length === 0 && 'approved identities',
+    datasets.length === 0 && 'allowed datasets',
+  ].filter(Boolean) as string[];
+
+  return (
+    <div className="mt-3 space-y-2.5 rounded-card border border-border bg-raised/40 px-3 py-2.5">
+      <div className="text-[12px] font-semibold text-text-hi">
+        Gateway policy <span className="font-normal text-text-low">· enforced on every tool call</span>
+      </div>
+
+      {gaps.length > 0 && (
+        <div className="rounded-card border border-warn/30 bg-warn/5 px-2 py-1.5 text-[11px] text-warn">
+          Undeclared: {gaps.join(' and ')}. An empty list means <em>nobody has written the policy</em> — not
+          &ldquo;nothing allowed&rdquo;. The gateway allows the call and records the gap on every row.
+        </div>
+      )}
+
+      <div>
+        <label className="mb-1 block text-[11px] text-text-low">
+          Allowed datasets <span className="text-text-low">— a call must name one of these once any are declared</span>
+        </label>
+        <TagInput value={datasets} onChange={setDatasets} placeholder="e.g. incidents_public" />
+      </div>
+      <div>
+        <label className="mb-1 block text-[11px] text-text-low">
+          Allowed fields <span className="text-text-low">— everything else is redacted from the response</span>
+        </label>
+        <TagInput value={fields} onChange={setFields} placeholder="e.g. key" />
+      </div>
+      <div>
+        <label className="mb-1 block text-[11px] text-text-low">
+          Approved identities <span className="text-text-low">— persona ids; enforcement is real, the principal is simulated</span>
+        </label>
+        <TagInput value={identities} onChange={setIdentities} placeholder="e.g. platform_engineer" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="mb-1 block text-[11px] text-text-low">service_account</label>
+          <input value={serviceAccount} onChange={(e) => setServiceAccount(e.target.value)} placeholder="unassigned"
+            className="w-full rounded-input border border-border bg-base px-2 py-1 text-[12px] text-text-hi outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label className="mb-1 block text-[11px] text-text-low">iam_principal</label>
+          <input value={iamPrincipal} onChange={(e) => setIamPrincipal(e.target.value)} placeholder="unassigned"
+            className="w-full rounded-input border border-border bg-base px-2 py-1 text-[12px] text-text-hi outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label className="mb-1 block text-[11px] text-text-low">rate limit / min</label>
+          <input value={rateLimit} onChange={(e) => setRateLimit(e.target.value)} inputMode="numeric"
+            className="w-full rounded-input border border-border bg-base px-2 py-1 text-[12px] text-text-hi outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label className="mb-1 block text-[11px] text-text-low">timeout (ms)</label>
+          <input value={timeout} onChange={(e) => setTimeoutMs(e.target.value)} inputMode="numeric"
+            className="w-full rounded-input border border-border bg-base px-2 py-1 text-[12px] text-text-hi outline-none focus:border-accent" />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-text-low">Slide 21 elements 4 &amp; 5 · audited as a governance action</span>
+        <Button size="sm" variant="primary" disabled={saving}
+          icon={saving ? <Loader2 size={13} className="animate-spin-slow" /> : undefined} onClick={save}>
+          Save policy
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -867,6 +1040,17 @@ function ConnectorBacklog() {
 
 const RESULT_TONE: Record<string, 'ok' | 'warn' | 'err'> = { ok: 'ok', error: 'warn', blocked: 'err' };
 
+// Phase 6. The single most important distinction on this screen: whether a row
+// is something the platform *observed* or something a client *reported*.
+// Showing them as one number is the easiest way to overclaim this workstream,
+// so they are labelled per row and filterable. CONCERNS R7.
+function EvidenceBadge({ call }: { call: ToolCallRecord }) {
+  if (!call.gateway) return <Badge tone="neutral" title="Reported by a client — result and latency are claims">reported</Badge>;
+  if (call.invocation === 'live') return <Badge tone="ok" title="Real MCP round trip — latency measured, result observed">observed · live</Badge>;
+  if (call.invocation === 'simulated') return <Badge tone="info" title="Policy enforced server-side; the tool body was simulated">enforced · sim</Badge>;
+  return <Badge tone="err" title="Denied at a checkpoint — nothing was invoked">denied</Badge>;
+}
+
 function ToolCalls() {
   const navigate = useNavigate();
   const agents = useWorkspace((s) => s.agents);
@@ -896,17 +1080,42 @@ function ToolCalls() {
     // explicit "local", never as a blank or a fabricated connector name.
     { key: 'system', header: 'System accessed', sortValue: (c) => c.system_accessed ?? '', render: (c) => c.system_accessed ? <span className="mono text-[11px] text-text-mid">{c.system_accessed}</span> : <span className="text-[11px] text-text-low">local — no MCP</span> },
     { key: 'permission', header: 'Permission', sortValue: (c) => c.permission, render: (c) => <Badge tone="info">{c.permission}</Badge> },
-    { key: 'result', header: 'Result', sortValue: (c) => c.result_status, render: (c) => <Badge tone={RESULT_TONE[c.result_status] ?? 'neutral'}>{c.result_status}</Badge> },
-    { key: 'latency', header: 'Latency', align: 'right', sortValue: (c) => c.latency_ms, render: (c) => <span className="mono text-[11px] text-text-mid">{c.latency_ms} ms</span> },
+    { key: 'result', header: 'Result', sortValue: (c) => c.result_status, render: (c) => (
+      <span className="flex items-center gap-1">
+        <Badge tone={RESULT_TONE[c.result_status] ?? 'neutral'}>{c.result_status}</Badge>
+        {/* The checkpoint that refused — a denial nobody can attribute is a
+            denial somebody files a bug about. */}
+        {c.denied_by && <span className="mono text-[10px] text-err">@{c.denied_by}</span>}
+      </span>
+    ) },
+    { key: 'evidence', header: 'Evidence', sortValue: (c) => `${c.gateway ? 1 : 0}${c.invocation ?? ''}`, render: (c) => <EvidenceBadge call={c} /> },
+    { key: 'latency', header: 'Latency', align: 'right', sortValue: (c) => c.latency_ms, render: (c) => (
+      // A latency is only a system's latency when it was measured over a real
+      // socket. Anything else is styled down rather than presented as equal.
+      <span className={cn('mono text-[11px]', c.invocation === 'live' ? 'text-ok' : 'text-text-low')}>{c.latency_ms} ms</span>
+    ) },
   ];
 
   const filters: FilterDef<ToolCallRecord>[] = [
     { key: 'agent', label: 'Agent', options: agents.map((a) => ({ value: agentId(a), label: a.config.identity.agent_name.value })), predicate: (c, v) => c.agent_id === v },
     { key: 'tool', label: 'Tool', options: tools.map((t) => ({ value: t.id, label: t.id })), predicate: (c, v) => c.tool_invoked === v },
     { key: 'result', label: 'Result', options: ['ok', 'error', 'blocked'].map((s) => ({ value: s, label: s })), predicate: (c, v) => c.result_status === v },
+    {
+      key: 'evidence',
+      label: 'Evidence',
+      options: [
+        { value: 'observed', label: 'observed (live MCP)' },
+        { value: 'enforced', label: 'gateway-enforced' },
+        { value: 'reported', label: 'client-reported' },
+      ],
+      predicate: (c, v) =>
+        v === 'observed' ? c.invocation === 'live' : v === 'enforced' ? c.gateway : !c.gateway,
+    },
   ];
 
   const blocked = calls?.filter((c) => c.result_status === 'blocked').length ?? 0;
+  const observed = calls?.filter((c) => c.invocation === 'live').length ?? 0;
+  const enforced = calls?.filter((c) => c.gateway).length ?? 0;
 
   return (
     <div>
@@ -917,6 +1126,20 @@ function ToolCalls() {
           {blocked > 0 && <> <span className="text-err">{blocked} blocked</span> — the advisory-only invariant, as evidence.</>}
         </span>
         <Button variant="ghost" size="sm" icon={<RefreshCw size={13} />} onClick={load} disabled={loading}>Refresh</Button>
+      </div>
+
+      {/* The honest claim, on the screen rather than in a doc: the gateway makes
+          a call authoritative, and rows that did not pass through it are not.
+          Stating the limit here is what keeps a demo from overclaiming it. */}
+      <div className="mb-3 flex items-start gap-2 rounded-card border border-border bg-raised/40 px-3 py-2 text-[12px] text-text-mid">
+        <Waypoints size={14} className="mt-0.5 shrink-0 text-accent" />
+        <span>
+          <span className="font-semibold text-text-hi">{enforced}</span> call(s) passed through the policy gateway —
+          eleven checkpoints enforced server-side, the result and latency observed here rather than reported.{' '}
+          <span className="font-semibold text-ok">{observed}</span> of those were real MCP round trips, and only those
+          latencies measure a real system. Rows badged <span className="mono text-[11px]">reported</span> are the
+          client-reported path: governed, but not runtime evidence.
+        </span>
       </div>
 
       {!loading && calls === null ? (

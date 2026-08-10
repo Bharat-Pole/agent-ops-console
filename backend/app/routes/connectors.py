@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from app.services.connector_authoring import create_connector, update_connector
 from app.services.connector_backlog import list_backlog, update_backlog_item
 from app.services.connector_health import list_connector_tools, run_healthcheck, toggle_offline
+from app.services.connector_policy import update_connector_policy
 
 router = APIRouter()
 
@@ -63,6 +64,22 @@ async def update(connector_id: str, body: dict[str, Any]) -> JSONResponse:
     except Exception as err:
         print("[connectors:update]", err)
         return JSONResponse(status_code=400, content={"message": str(err) or "Could not update the connector."})
+
+
+# Phase 6 — the gateway policy fields (slide 21 elements 4 and 5). A separate
+# route from the PATCH above on purpose: that one edits how we reach a server,
+# this one declares what it may expose and to whom. See services/connector_policy.py.
+@router.patch("/v1/connectors/{connector_id}/policy")
+async def update_policy(connector_id: str, body: dict[str, Any]) -> JSONResponse:
+    try:
+        return JSONResponse(content=await update_connector_policy(connector_id, body))
+    except LookupError as err:
+        return JSONResponse(status_code=404, content={"message": str(err)})
+    except ValueError as err:
+        return JSONResponse(status_code=400, content={"message": str(err)})
+    except Exception as err:
+        print("[connectors:policy]", err)
+        return JSONResponse(status_code=400, content={"message": str(err) or "Could not update the policy."})
 
 
 @router.post("/v1/connectors/{connector_id}/healthcheck")

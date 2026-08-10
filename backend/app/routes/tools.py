@@ -66,15 +66,18 @@ async def create_tool_call(body: dict[str, Any]) -> JSONResponse:
         return JSONResponse(status_code=400, content={"message": str(err) or "Could not record the tool call."})
 
 
+# `gateway=true` narrows to rows the Phase 6 gateway produced — the ones whose
+# result and latency were observed here rather than reported by a client.
 @router.get("/v1/tool-calls")
 async def get_tool_calls(
     agentId: Optional[str] = None,
     toolId: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 200,
+    gateway: Optional[bool] = None,
 ) -> JSONResponse:
     try:
-        return JSONResponse(content=await list_tool_calls(agentId, toolId, status, limit))
+        return JSONResponse(content=await list_tool_calls(agentId, toolId, status, limit, gateway))
     except Exception as err:
         print("[tool-calls:list]", err)
         return JSONResponse(status_code=400, content={"message": str(err) or "Could not list tool calls."})

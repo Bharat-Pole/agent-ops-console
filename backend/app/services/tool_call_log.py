@@ -22,12 +22,17 @@ and never taken from the client**:
                    `resultStatus: ok` for a tool it was never bound to has its
                    status **overridden to `blocked`** with the reason recorded.
 
-`result_status` and `latency_ms` remain client-supplied, and that is an honest
-limit rather than an oversight: the Playground's tool calls are client-simulated,
-so there is no server-side invocation to time or to observe failing. The
-authority check above is what stops that being a hole worth exploiting. **Do not
-describe this trail as tamper-proof runtime evidence** — it becomes that when
-calls run through a real gateway (see `ROADMAP.md` Phase 5).
+`result_status` and `latency_ms` remain client-supplied **on this path**, and
+that is an honest limit rather than an oversight: a client-simulated tool call
+has no server-side invocation to time or to observe failing. The authority check
+above is what stops that being a hole worth exploiting.
+
+**Phase 6 added a second write path — `record_gateway_call()` — where that limit
+does not apply.** There, the server ran the checkpoints, started the clock and
+read the response, so every field is its own. The two paths are distinguishable
+in the data by `tool_calls.gateway`, and they must stay that way: describing a
+reported row as observed evidence is the single easiest way to overclaim this
+workstream. `CONCERNS.md` R7.
 
 `blocked` results additionally write an audit event. That is the point of
 logging them: the advisory-only invariant stops being a silent rejection and
@@ -205,11 +210,74 @@ async def record_blocked_bind(agent_id: str, tool_id: str, reason: str) -> None:
         print("[tool_call_log:record_blocked_bind]", err)
 
 
+async def record_gateway_call(record: dict[str, Any]) -> dict[str, Any]:
+    """Persist one call that went through the Phase 6 gateway.
+
+    Deliberately *not* an extension of `record_tool_call()`. That function's job
+    is to take a client's account of something and make it as trustworthy as it
+    can — resolving four fields server-side and overriding a claimed status when
+    authority fails. This function has no client account to sanitise: the
+    gateway is the caller, it ran every checkpoint itself, and it timed its own
+    invocation. Merging the two would mean the sanitising path could be reached
+    with `gateway = True` in the payload, which is the one thing that must never
+    be possible.
+
+    So the only validation here is on our own caller, and the audit event is
+    written for a *denial* — a successful call is already a row, and an audit
+    entry per successful tool call would bury the governance events the log
+    exists for.
+    """
+    call = {
+        "id": f"tc-{uuid.uuid4()}",
+        "agent_id": record["agent_id"],
+        "request_id": record.get("request_id") or f"req-{uuid.uuid4()}",
+        "consumer": record.get("consumer") or "playground",
+        "tool_invoked": record["tool_id"],
+        "system_accessed": record.get("system_accessed"),
+        "result_status": record["result_status"],
+        "latency_ms": max(0, int(record.get("latency_ms") or 0)),
+        "exception_detail": record.get("reason"),
+        "permission": record.get("permission") or "unknown",
+        "at": _now_iso(),
+        # The four Phase 6 columns that make this row *observed* rather than
+        # reported. `gateway` is hardcoded True here and settable nowhere else.
+        "gateway": True,
+        "decision": record["decision"],
+        "denied_by": record.get("denied_by"),
+        "invocation": record.get("invocation") or "none",
+        "principal": record.get("principal"),
+        "team": record.get("team"),
+        "redacted_fields": record.get("redacted_fields") or [],
+    }
+
+    await tool_calls_repo.insert(call)
+
+    audit_event = None
+    if call["decision"] == "deny":
+        audit_event = await audit_repo.insert(
+            {
+                "id": f"aud-{uuid.uuid4()}",
+                "at": _now_iso(),
+                "actor_persona": "Platform Engineer",
+                "action": "gateway_denied",
+                "entity_type": "agent",
+                "entity_id": call["agent_id"],
+                "detail": (
+                    f"Gateway DENIED {call['tool_invoked']} at checkpoint "
+                    f"'{call['denied_by']}'. {call['exception_detail'] or 'No reason recorded.'}"
+                ),
+            }
+        )
+
+    return {"toolCall": call, "auditEvent": audit_event}
+
+
 async def list_tool_calls(
     agent_id: Optional[str] = None,
     tool_id: Optional[str] = None,
     result_status: Optional[str] = None,
     limit: int = 200,
+    gateway: Optional[bool] = None,
 ) -> dict[str, Any]:
-    calls = await tool_calls_repo.get_filtered(agent_id, tool_id, result_status, limit)
+    calls = await tool_calls_repo.get_filtered(agent_id, tool_id, result_status, limit, gateway)
     return {"toolCalls": calls}

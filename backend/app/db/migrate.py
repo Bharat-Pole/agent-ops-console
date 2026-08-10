@@ -120,6 +120,18 @@ ALTER TABLE tools ADD COLUMN IF NOT EXISTS approval_state TEXT NOT NULL DEFAULT 
 ALTER TABLE tools ADD COLUMN IF NOT EXISTS owner TEXT;
 ALTER TABLE tools ADD COLUMN IF NOT EXISTS risk_level TEXT;
 
+-- Phase 5A — real MCP discovery (ROADMAP D7). `remote_tool_id` is the name the
+-- MCP server itself uses; our `id` is namespaced `{connector_id}.{remote_tool_id}`
+-- so two connectors can serve a same-named tool without colliding, and so a
+-- tool's origin is legible from its id alone.
+--
+-- NULL `remote_tool_id` is meaningful: it marks a tool that was authored in the
+-- console or seeded, as opposed to one discovered from a server. That
+-- distinction is what stops a re-discovery from treating a hand-authored tool
+-- as an orphan and vice versa.
+ALTER TABLE tools ADD COLUMN IF NOT EXISTS remote_tool_id TEXT;
+ALTER TABLE tools ADD COLUMN IF NOT EXISTS discovered_at TEXT;
+
 -- MCP connectors. Added when the MCP layer was moved server-side to match
 -- tools: a connector's health is now authoritative state the server owns, not
 -- a client-side simulation, because tool status derives from it (see
@@ -134,6 +146,39 @@ CREATE TABLE IF NOT EXISTS connectors (
   tools_provided_json JSONB NOT NULL DEFAULT '[]',
   last_healthcheck   TEXT NOT NULL
 );
+
+-- Phase 5A — evidence from the last real probe. NULL means this connector has
+-- never been probed over the wire, which is exactly what we must be able to
+-- distinguish: a simulated healthcheck and a real one must not look alike in
+-- the data, or the UI cannot honestly label which is which.
+ALTER TABLE connectors ADD COLUMN IF NOT EXISTS last_probe_json JSONB;
+
+-- Phase 6 — gateway policy. Deck slide 21 elements 4 (Data Boundary Controls)
+-- and 5 (Identity & Access Pattern), which were the last two unbuilt cells of
+-- the seven-element pattern.
+--
+-- Every column here is read by exactly one place — `services/tool_gateway.py`
+-- — and written by exactly one place — `services/connector_policy.py`. They are
+-- deliberately NOT reachable from `connector_authoring.py`: registering a server
+-- is a connectivity act, declaring what it may expose is a governance act, and
+-- an author who could do both could widen their own boundary.
+--
+-- **An empty list means "not declared", not "nothing allowed".** That reading is
+-- forced on us by honesty: the five seeded connectors have no real dataset
+-- inventory behind them, and defaulting them to a deny-all would be enforcing a
+-- policy nobody wrote. An undeclared boundary is recorded on every call as a
+-- visible governance gap (`boundary_declared: false`) rather than passing
+-- silently — the same treatment `tools.owner` gets when it is NULL.
+ALTER TABLE connectors ADD COLUMN IF NOT EXISTS allowed_datasets_json JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE connectors ADD COLUMN IF NOT EXISTS allowed_fields_json JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE connectors ADD COLUMN IF NOT EXISTS approved_identities_json JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE connectors ADD COLUMN IF NOT EXISTS service_account TEXT;
+ALTER TABLE connectors ADD COLUMN IF NOT EXISTS iam_principal TEXT;
+-- Per (agent, tool) over a rolling 60s window, counted from `tool_calls`. A
+-- separate counter store would be faster and would also be a second source of
+-- truth about what happened; the audit trail already knows.
+ALTER TABLE connectors ADD COLUMN IF NOT EXISTS rate_limit_per_min INTEGER NOT NULL DEFAULT 60;
+ALTER TABLE connectors ADD COLUMN IF NOT EXISTS timeout_ms INTEGER NOT NULL DEFAULT 10000;
 
 -- Tool-call audit trail (deck slide 21, element 6). The column list is the
 -- slide's own field list, verbatim and in order, so the table can be read
@@ -154,6 +199,32 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 );
 CREATE INDEX IF NOT EXISTS idx_tool_calls_agent ON tool_calls(agent_id, at DESC);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_tool ON tool_calls(tool_invoked, at DESC);
+
+-- Phase 6 — the gateway's own columns. Slide 21's eight fields above are
+-- unchanged; these say *how much the row can be trusted*, which is the whole
+-- of CONCERNS R7.
+--
+-- `gateway` is the load-bearing one. FALSE means the row was reported by a
+-- client (`POST /v1/tool-calls`) — the Phase 1 path, where `result_status` and
+-- `latency_ms` are claims. TRUE means every checkpoint ran server-side and the
+-- outcome was observed here. The two must never be conflated in a demo, so they
+-- are not conflated in the schema.
+--
+-- `invocation` refines that further: `live` is a real MCP round trip and is the
+-- only value for which `latency_ms` is a genuine system measurement; `simulated`
+-- means the policy decision was real but the tool body was not; `none` means the
+-- call was denied and never reached a tool at all.
+ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS gateway BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS decision TEXT;          -- allow | deny (NULL = not gateway-governed)
+ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS denied_by TEXT;         -- the checkpoint id that denied
+ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS invocation TEXT;        -- live | simulated | none
+-- Blueprint §8.1 wants User and Team on a trace; slide 21 element 5 wants the
+-- call tied to an approved identity. Nullable because the Phase 1 rows predate
+-- both and backfilling a principal would be inventing one.
+ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS principal TEXT;
+ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS team TEXT;
+ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS redacted_fields_json JSONB NOT NULL DEFAULT '[]';
+CREATE INDEX IF NOT EXISTS idx_tool_calls_gateway ON tool_calls(gateway, at DESC);
 
 -- Connector prioritization backlog — deck slide 21, element 7 ("identify which
 -- systems should be connected in the first 90 days versus future phases") and
