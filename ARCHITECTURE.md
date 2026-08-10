@@ -1473,7 +1473,8 @@ passes the decision through instead of applying it.
 
 ### Verification
 
-`verify_tool_gateway.py` — **215 assertions** in five layers: the published
+`verify_tool_gateway.py` — **233 assertions** in six layers (Phase 7 added
+layer 2b): the published
 policy, a denial for **every one of the eleven checkpoints** (each asserted
 completely — verdict, checkpoint name, and the row it wrote), field-set
 isolation between the two PATCH routes, a live invocation against the reference
@@ -1485,3 +1486,88 @@ agent, and removes all of it. It **deliberately leaves its `tool_calls` rows** �
 an audit trail that deletes its own evidence would be a strange thing to ship,
 and those rows are the artefact the phase produces. The live layer skips cleanly
 without the reference server.
+
+---
+
+## 17. The MCP Gateway view — Phase 7
+
+**Deck slide 21, element 1's picture** — the enforcement shipped in Phase 6; this
+is the diagram of it. The element an executive looks for, and the one that
+visually explains why the workstream exists: *"prevents each agent from creating
+separate point-to-point integrations."*
+
+**The last phase this workstream builds.** Everything after it is gated on access
+(Phase 5B) or scoped out of the 90 days by the SOW (Phase 8).
+
+### It is a derivation, and that is the constraint
+
+`GET /v1/gateway/graph` adds **no tables, no enforcement, and no persisted
+state**. Every field comes from something that already existed:
+
+| Part of the picture | Derived from |
+|---|---|
+| agent nodes | `agents` + each agent's own `bound_tools` |
+| edges | the tool→connector edge, the same lookup Phase 0 walks |
+| the checkpoint stack | `CHECKPOINTS` in `tool_gateway.py` — the enforced list, not a copy |
+| denial counts per checkpoint | `tool_calls` aggregated where `gateway = TRUE` |
+| per-connector traffic | the same, grouped by `system_accessed` |
+| boundary / identity gaps | the Phase 6 policy columns |
+
+**If this endpoint ever needs to store something, the phase before it was left
+unfinished.** That is the test to apply to any change here.
+
+The counts are aggregated **in SQL** rather than by fetching rows and counting in
+Python: the view is a whole-platform read and `get_filtered` is capped at 1000,
+so a Python count would quietly become wrong exactly when the trail got
+interesting.
+
+### Three modelling decisions
+
+**1. Local tools are counted, never given a placeholder node.** Five of the
+twelve seeded tools reach no MCP server at all. A box labelled "local" would make
+the diagram tidier and would misrepresent the estate — the entire point of the
+picture is which systems are actually reached.
+
+**2. Agents with no bound tools still appear, with zero edges.** Two seeded
+agents are in that state. Dropping them would quietly overstate how connected the
+platform is, which is the specific thing this diagram must not do.
+
+**3. Only connectors that are reached or have traffic are drawn**, and the number
+omitted is stated on screen. This is a concession to `CONCERNS.md` **R12**: the
+dev database has accumulated 77 connectors from suite runs, and a diagram whose
+argument is *"look how few integrations there are"* cannot be rendered with 72
+unreferenced boxes in it. **The view is what surfaced R12** — every list view
+sorts `zz-verify-*` to the bottom where nobody scrolls; this is the first surface
+that renders all connectors at once.
+
+### The rendering
+
+Rows are a **fixed 52px**, which is what makes edge endpoints computable without
+measuring DOM nodes — measuring would be more flexible and would also leave the
+lines a frame behind every resize.
+
+Edges are one absolutely-positioned SVG with `viewBox="0 0 100 {height}"` and
+`preserveAspectRatio="none"`: x lives in a 0–100 percent-like space, y in real
+pixels, so an endpoint is just `index * 52 + 26`. `vector-effect:
+non-scaling-stroke` stops the non-uniform scale from smearing the stroke. **SVG
+path data cannot take percentages** — an earlier draft wrote `M 34% …`, which is
+silently invalid; the viewBox is the fix.
+
+Each route is drawn as **two** curves, agent→gateway and gateway→connector, so it
+visibly *passes through* the checkpoint stack rather than jumping the middle
+column. Stroke colour carries connector health, so an offline hop reads as a
+property of the route rather than only of the box at the end of it.
+
+Clicking an agent isolates its routes and dims the rest — the cheapest honest
+answer to "which systems does this agent actually touch?", which is the question
+Phase 0 made answerable and nothing had yet asked visually.
+
+### Verification
+
+`verify_tool_gateway.py` gained **layer 2b, 18 assertions** (215 → 233). A
+read-only view can drift from the thing it depicts and still render beautifully,
+so every assertion is a **consistency** check rather than a shape check: the
+published chain equals the enforced chain, node counts equal the registries,
+every edge is derivable from that agent's own `bound_tools`, denial counts sum to
+the denial total and name only real checkpoints, and client-reported rows are
+excluded from the traffic figures.

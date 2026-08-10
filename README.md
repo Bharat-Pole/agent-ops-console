@@ -26,6 +26,10 @@ Runtime, Content — are green.**
 > through a policy gateway that enforces eleven checkpoints deny-by-default and
 > performs the invocation itself.
 >
+> The console also draws that layer: **Tools & MCP → MCP Gateway** shows every
+> agent→system route passing through the checkpoint stack, with the number of
+> calls each checkpoint has actually refused.
+>
 > **What that buys, said precisely:** a tool-call row is *authoritative for every
 > call that passes through the gateway* — not more than that. The table
 > distinguishes three shapes so the claim cannot quietly widen: client-reported

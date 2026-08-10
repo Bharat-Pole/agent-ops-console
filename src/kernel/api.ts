@@ -93,6 +93,7 @@ export const api = {
   // `callToolThroughGateway` invokes; `recordToolCall` above only reports.
   callToolThroughGateway: services.callToolThroughGateway,
   getGatewayPolicy: services.getGatewayPolicy,
+  getGatewayGraph: services.getGatewayGraph, // Phase 7 — the gateway view
   updateConnectorPolicy: services.updateConnectorPolicy,
   proposeConfigChange: services.proposeConfigChange,
   enableDemoMode: services.enableDemoMode,

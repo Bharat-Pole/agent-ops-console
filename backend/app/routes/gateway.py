@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from app.services.tool_gateway import call_tool, describe_policy
+from app.services.tool_gateway import call_tool, describe_graph, describe_policy
 
 router = APIRouter()
 
@@ -45,4 +45,18 @@ async def gateway_policy() -> JSONResponse:
         print("[gateway:policy]", err)
         return JSONResponse(
             status_code=400, content={"message": str(err) or "Could not describe the gateway policy."}
+        )
+
+
+# Phase 7 — the gateway view's data. Pure derivation over agents, tools,
+# connectors and aggregate tool-call counts: no new tables and no new
+# enforcement, by design.
+@router.get("/v1/gateway/graph")
+async def gateway_graph() -> JSONResponse:
+    try:
+        return JSONResponse(content=await describe_graph())
+    except Exception as err:  # noqa: BLE001
+        print("[gateway:graph]", err)
+        return JSONResponse(
+            status_code=400, content={"message": str(err) or "Could not build the gateway graph."}
         )

@@ -147,3 +147,66 @@ async def get_filtered(
 
 async def get_all(limit: int = 200) -> list[dict[str, Any]]:
     return await get_filtered(limit=limit)
+
+
+async def gateway_summary() -> dict[str, Any]:
+    """Aggregate counts over gateway rows only — Phase 7's traffic overlay.
+
+    Aggregated in SQL rather than by fetching rows and counting in Python: the
+    view is a whole-platform read and `get_filtered` is capped at 1000, so a
+    Python count would quietly become wrong exactly when the trail got
+    interesting.
+
+    `gateway = FALSE` rows are excluded throughout. The gateway view draws what
+    the gateway did; a client-reported row is evidence about something that
+    happened somewhere else, and mixing the two here would undo the distinction
+    the whole phase rests on.
+    """
+    pool = get_pool()
+
+    totals = await pool.fetchrow(
+        """SELECT
+               COUNT(*)                                            AS total,
+               COUNT(*) FILTER (WHERE decision = 'allow')          AS allowed,
+               COUNT(*) FILTER (WHERE decision = 'deny')           AS denied,
+               COUNT(*) FILTER (WHERE invocation = 'live')         AS live,
+               COUNT(*) FILTER (WHERE invocation = 'simulated')    AS simulated
+           FROM tool_calls WHERE gateway = TRUE"""
+    )
+
+    by_checkpoint = await pool.fetch(
+        """SELECT denied_by AS checkpoint, COUNT(*) AS n FROM tool_calls
+           WHERE gateway = TRUE AND decision = 'deny' AND denied_by IS NOT NULL
+           GROUP BY denied_by ORDER BY n DESC"""
+    )
+
+    by_connector = await pool.fetch(
+        """SELECT system_accessed AS connector_id,
+                  COUNT(*)                                   AS calls,
+                  COUNT(*) FILTER (WHERE decision = 'deny')   AS denied,
+                  COUNT(*) FILTER (WHERE invocation = 'live') AS live
+           FROM tool_calls WHERE gateway = TRUE AND system_accessed IS NOT NULL
+           GROUP BY system_accessed"""
+    )
+
+    by_agent = await pool.fetch(
+        """SELECT agent_id, COUNT(*) AS calls,
+                  COUNT(*) FILTER (WHERE decision = 'deny') AS denied
+           FROM tool_calls WHERE gateway = TRUE GROUP BY agent_id"""
+    )
+
+    return {
+        "total": int(totals["total"]),
+        "allowed": int(totals["allowed"]),
+        "denied": int(totals["denied"]),
+        "live": int(totals["live"]),
+        "simulated": int(totals["simulated"]),
+        "by_checkpoint": {r["checkpoint"]: int(r["n"]) for r in by_checkpoint},
+        "by_connector": {
+            r["connector_id"]: {"calls": int(r["calls"]), "denied": int(r["denied"]), "live": int(r["live"])}
+            for r in by_connector
+        },
+        "by_agent": {
+            r["agent_id"]: {"calls": int(r["calls"]), "denied": int(r["denied"])} for r in by_agent
+        },
+    }

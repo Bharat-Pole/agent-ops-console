@@ -10,7 +10,7 @@ import { agentId, ADVISORY_PERMISSIONS, type ToolAsset, type ToolPermission, typ
 import { fmtDateTime } from '@/utils/format';
 import { Ban, Radio, Power, Activity, Loader2, Plus, Sparkles, Search, RefreshCw, Pencil, ShieldCheck, Clock, XCircle, Grid3x3, ShieldHalf, Waypoints } from 'lucide-react';
 import { cn } from '@/utils/cn';
-import type { ConnectorToolsResponse, ToolCallRecord, ConnectorBacklogResponse } from '@/kernel/services';
+import type { ConnectorToolsResponse, ToolCallRecord, ConnectorBacklogResponse, GatewayGraphResponse } from '@/kernel/services';
 
 export default function ToolsPage() {
   const [params, setParams] = useSearchParams();
@@ -24,6 +24,7 @@ export default function ToolsPage() {
     { key: 'mcp', label: 'MCP Connectors', count: connectors.length },
     // Server-side data, not in the store — no count here on purpose.
     { key: 'calls', label: 'Tool Calls' },
+    { key: 'gateway', label: 'MCP Gateway' },
     { key: 'backlog', label: 'Connector Backlog' },
   ];
 
@@ -34,6 +35,7 @@ export default function ToolsPage() {
       {tab === 'catalog' && <ToolCatalog />}
       {tab === 'mcp' && <McpConnectors />}
       {tab === 'calls' && <ToolCalls />}
+      {tab === 'gateway' && <GatewayView />}
       {tab === 'backlog' && <ConnectorBacklog />}
     </div>
   );
@@ -736,6 +738,241 @@ function ConnectorCard({ connector: c, onEdit }: { connector: McpConnector; onEd
         </div>
       )}
     </Card>
+  );
+}
+
+// ---- MCP Gateway view (Phase 7 — slide 21 element 1) ----------------------
+//
+// "Standard architecture for routing agent requests to approved tools, systems,
+// and data sources… prevents each agent from creating separate point-to-point
+// integrations." This is that sentence, drawn.
+//
+// Read-only over what Phases 0, 6 and 5A already made real — no new tables and
+// no new enforcement. It is built *after* the checkpoints it draws, which is the
+// difference between a diagram and an illustration of an intention.
+//
+// Two rendering decisions worth keeping:
+//
+//   · **Rows are a fixed height** so edge endpoints can be computed
+//     deterministically and drawn as one absolutely-positioned SVG. Measuring
+//     real DOM nodes would be more flexible and would also mean the lines lag a
+//     frame behind every resize.
+//   · **Only connectors that are actually reached (or have traffic) are drawn.**
+//     The dev database accumulates `zz-verify-*` connectors from suite runs, and
+//     a diagram whose point is "look how few integrations there are" cannot be
+//     rendered with 70 unreferenced boxes in it. The count of what was left out
+//     is stated rather than hidden.
+
+const ROW_H = 52; // px — fixed so SVG edge endpoints are computable, see above
+
+const GATEWAY_STATUS_TONE: Record<string, 'ok' | 'warn' | 'err'> = {
+  connected: 'ok', degraded: 'warn', offline: 'err',
+};
+
+function GatewayView() {
+  const [g, setG] = useState<GatewayGraphResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [focus, setFocus] = useState<string | null>(null); // agent_id
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api.getGatewayGraph().then((d) => { setG(d); setLoading(false); });
+  }, []);
+  useEffect(load, [load]);
+
+  if (loading) return <Card><div className="py-10 text-center text-[13px] text-text-low">Resolving the gateway graph…</div></Card>;
+  if (!g) return <Card><div className="py-10 text-center text-[13px] text-text-low">Could not reach the server — gateway view unavailable.</div></Card>;
+
+  // Draw only what is reached. Everything else is counted, not rendered.
+  const referenced = new Set(g.edges.map((e) => e.connector_id));
+  const drawn = g.connectors.filter((c) => referenced.has(c.connector_id) || c.calls.calls > 0);
+  const hidden = g.connectors.length - drawn.length;
+
+  const agentIdx = new Map(g.agents.map((a, i) => [a.agent_id, i]));
+  const connIdx = new Map(drawn.map((c, i) => [c.connector_id, i]));
+
+  const height = Math.max(g.agents.length, drawn.length, g.checkpoints.length) * ROW_H;
+  const y = (i: number) => i * ROW_H + ROW_H / 2;
+
+  const dim = (on: boolean) => cn('transition-opacity', on ? 'opacity-100' : 'opacity-25');
+  const edgeLive = (e: GatewayGraphResponse['edges'][number]) => !focus || e.agent_id === focus;
+
+  return (
+    <div className="space-y-3">
+      {/* The headline claim, with the number behind it. */}
+      <div className="flex items-start justify-between gap-3 rounded-card border border-accent/30 bg-accent/5 px-3 py-2 text-[12px] text-text-mid">
+        <span>
+          <span className="font-semibold text-text-hi">{g.summary.edges} agent→system route(s)</span> run through one
+          governed gateway instead of {g.summary.point_to_point_avoided} point-to-point integrations. Every route
+          crosses all {g.checkpoints.length} checkpoints, deny-by-default.{' '}
+          <span className="text-text-low">Click an agent to isolate its routes.</span>
+        </span>
+        <Button variant="ghost" size="sm" icon={<RefreshCw size={13} />} onClick={load}>Refresh</Button>
+      </div>
+
+      <Card pad={false}>
+        <div className="grid grid-cols-[1fr_260px_1fr] gap-0 px-3 pt-3 text-[11px] font-semibold uppercase tracking-wide text-text-low">
+          <span>Agents</span>
+          <span className="text-center">MCP Gateway</span>
+          <span className="text-right">Connectors → systems</span>
+        </div>
+
+        <div className="relative px-3 pb-3" style={{ minHeight: height + 12 }}>
+          {/* Edges. One SVG over the whole band; endpoints from the fixed row
+              height. Colour carries connector health, so an offline hop is
+              visible as a route property rather than only on the box. */}
+          {/* viewBox gives an x space of 0–100 (percent-like) and a y space in
+              real pixels, so endpoints come straight from the fixed row height.
+              `preserveAspectRatio="none"` is what keeps those two independent;
+              `vector-effect` then stops the non-uniform scale from smearing the
+              stroke width. SVG path data cannot take percentages — hence the
+              viewBox rather than `34%` inline. */}
+          <svg
+            className="pointer-events-none absolute inset-0 h-full w-full"
+            viewBox={`0 0 100 ${height}`}
+            preserveAspectRatio="none"
+            style={{ zIndex: 0 }}
+          >
+            {g.edges.map((e) => {
+              const ai = agentIdx.get(e.agent_id); const ci = connIdx.get(e.connector_id);
+              if (ai === undefined || ci === undefined) return null;
+              const on = edgeLive(e);
+              const stroke = e.status === 'offline' ? '#ef4444' : e.status === 'degraded' ? '#f59e0b' : '#6366f1';
+              const mid = height / 2;
+              return (
+                <g key={`${e.agent_id}-${e.connector_id}`} opacity={on ? 0.8 : 0.07}>
+                  {/* agent → gateway, then gateway → connector: two curves, so
+                      the route visibly *passes through* the checkpoint stack
+                      rather than jumping the middle column. */}
+                  <path d={`M 33 ${y(ai)} C 41 ${y(ai)}, 41 ${mid}, 49 ${mid}`}
+                    fill="none" stroke={stroke} strokeWidth={on ? 1.6 : 1} vectorEffect="non-scaling-stroke" />
+                  <path d={`M 51 ${mid} C 59 ${mid}, 59 ${y(ci)}, 67 ${y(ci)}`}
+                    fill="none" stroke={stroke} strokeWidth={on ? 1.6 : 1} vectorEffect="non-scaling-stroke" />
+                </g>
+              );
+            })}
+          </svg>
+
+          <div className="relative grid grid-cols-[1fr_260px_1fr] gap-0" style={{ zIndex: 1 }}>
+            {/* Agents */}
+            <div>
+              {g.agents.map((a) => (
+                <div key={a.agent_id} style={{ height: ROW_H }} className="flex items-center pr-3">
+                  <button
+                    onClick={() => setFocus(focus === a.agent_id ? null : a.agent_id)}
+                    className={cn(
+                      'w-full rounded-card border px-2 py-1.5 text-left',
+                      focus === a.agent_id ? 'border-accent bg-accent/10' : 'border-border bg-raised/40 hover:border-accent/40',
+                      dim(!focus || focus === a.agent_id),
+                    )}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-[12px] font-semibold text-text-hi">{a.name}</span>
+                      {a.requires_hitl && <Badge tone="err">HITL</Badge>}
+                    </div>
+                    <div className="text-[10px] text-text-low">
+                      {a.connector_ids.length} system(s) · {a.local_tools.length} local tool(s)
+                      {a.calls.calls > 0 && <> · {a.calls.calls} call(s){a.calls.denied > 0 && <span className="text-err"> · {a.calls.denied} denied</span>}</>}
+                      {a.connector_ids.length === 0 && <span className="text-text-low"> · no MCP route</span>}
+                    </div>
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* The gateway itself — the checkpoint stack, with real denial counts */}
+            <div className="px-1">
+              <div className="rounded-card border border-accent/40 bg-accent/5 p-2">
+                <div className="mb-1.5 flex items-center gap-1.5">
+                  <Waypoints size={13} className="text-accent" />
+                  <span className="text-[12px] font-semibold text-text-hi">Policy checkpoints</span>
+                  <Badge tone="info">deny-by-default</Badge>
+                </div>
+                <div className="space-y-[3px]">
+                  {g.checkpoints.map((c, i) => {
+                    const denied = g.traffic.by_checkpoint[c.id] ?? 0;
+                    return (
+                      <div key={c.id} title={`${c.description}\n\nSource: ${c.source}`}
+                        className="flex items-center justify-between rounded border border-border bg-base px-1.5 py-[3px]">
+                        <span className="flex items-center gap-1 truncate">
+                          <span className="mono text-[9px] text-text-low">{i + 1}</span>
+                          <span className="truncate text-[11px] text-text-mid">{c.label}</span>
+                        </span>
+                        {denied > 0
+                          ? <span className="mono shrink-0 text-[10px] text-err">{denied} denied</span>
+                          : <span className="mono shrink-0 text-[10px] text-text-low">—</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-1.5 border-t border-border pt-1.5 text-[10px] text-text-low">
+                  {g.traffic.total} call(s) · <span className="text-ok">{g.traffic.allowed} allowed</span> ·{' '}
+                  <span className="text-err">{g.traffic.denied} denied</span> · <span className="text-ok">{g.traffic.live} live MCP</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Connectors → systems */}
+            <div>
+              {drawn.map((c) => {
+                const on = !focus || g.edges.some((e) => e.agent_id === focus && e.connector_id === c.connector_id);
+                return (
+                  <div key={c.connector_id} style={{ height: ROW_H }} className="flex items-center pl-3">
+                    <div className={cn('w-full rounded-card border border-border bg-raised/40 px-2 py-1.5', dim(on))}>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <span className="truncate text-[12px] font-semibold text-text-hi">{c.name}</span>
+                        <Badge tone={GATEWAY_STATUS_TONE[c.status] ?? 'neutral'}>{c.status}</Badge>
+                        <Badge tone={c.live ? 'ok' : 'neutral'}>{c.live ? 'live MCP' : 'simulated'}</Badge>
+                      </div>
+                      <div className="text-right text-[10px] text-text-low">
+                        {c.tools.length} tool(s)
+                        {/* An undeclared boundary is a governance gap, and the
+                            diagram is where it is most visible. */}
+                        {!c.boundary_declared && <span className="text-warn"> · no data boundary</span>}
+                        {!c.identities_declared && <span className="text-warn"> · no approved identities</span>}
+                        {c.calls.calls > 0 && <> · {c.calls.calls} call(s)</>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-3 text-[12px]">
+        <Card>
+          <div className="mb-1 text-[12px] font-semibold text-text-hi">Not on the diagram, on purpose</div>
+          <ul className="space-y-1 text-text-mid">
+            <li>
+              <span className="font-semibold text-text-hi">{g.summary.local_only_tools.length} local tool(s)</span> reach no
+              MCP server at all. They are counted, never given a placeholder node — a tidier picture that misrepresents
+              the estate is worse than an honest gap.
+            </li>
+            <li>
+              <span className="font-semibold text-text-hi">{g.summary.unrouted_agents.length} agent(s)</span> have no MCP
+              route. Shown with zero edges rather than dropped: an agent that touches nothing is a real state.
+            </li>
+            {hidden > 0 && (
+              <li className="text-warn">
+                <span className="font-semibold">{hidden} connector(s) hidden</span> — registered but never reached and with
+                no traffic. Mostly <span className="mono">zz-verify-*</span> rows left by suite runs (CONCERNS R2/R12).
+              </li>
+            )}
+          </ul>
+        </Card>
+        <Card>
+          <div className="mb-1 text-[12px] font-semibold text-text-hi">What this view is, exactly</div>
+          <p className="text-text-mid">
+            A derivation — no new tables, no new enforcement. Edges come from the Phase 0 resolver, checkpoints from{' '}
+            <span className="mono text-[11px]">GET /v1/gateway/policy</span>, counts from gateway rows in the tool-call
+            trail. The denial counts beside each checkpoint are <span className="font-semibold text-text-hi">calls that
+            were actually refused</span>, not an illustration.
+          </p>
+        </Card>
+      </div>
+    </div>
   );
 }
 

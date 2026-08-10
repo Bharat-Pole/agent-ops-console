@@ -56,7 +56,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Optional
 
-from app.repositories import agents_repo, connectors_repo, tool_calls_repo, tools_repo
+from app.repositories import agents_repo, connectors_repo, tool_calls_repo, tools_repo  # noqa: F401
 from app.services import mcp_client
 from app.services.connector_health import is_live_connector
 from app.services.connector_resolution import parse_tool_ref
@@ -660,4 +660,127 @@ async def describe_policy() -> dict[str, Any]:
         "principals": list(PRINCIPALS),
         "rateWindowSeconds": RATE_WINDOW_SECONDS,
         "policies": policies,
+    }
+
+
+async def describe_graph() -> dict[str, Any]:
+    """Agents → gateway → connectors → systems, as data — Phase 7.
+
+    Slide 21's headline element, and the one an executive looks for: *"prevents
+    each agent from creating separate point-to-point integrations."* The picture
+    only means something once the checkpoints it draws are real, which is why
+    this is built after Phase 6 rather than before it.
+
+    **Strictly a derivation.** No new tables, no new enforcement, no new
+    persisted state — every field here comes from `connector_resolution`, the
+    connector rows, `CHECKPOINTS`, and aggregate counts over `tool_calls`. If
+    this function ever needs to *store* something, the phase before it was left
+    unfinished.
+
+    Two modelling choices worth keeping:
+
+    - **Local tools are counted, never given a fake connector node.** Five of the
+      twelve seeded tools reach no MCP server at all. Drawing a placeholder box
+      for them would make the diagram tidier and would misrepresent the estate —
+      the whole point of the picture is which systems are actually reached.
+    - **Agents with no bound tools still appear**, with zero edges. An agent that
+      touches nothing is a real and interesting state (two seeded agents are in
+      it), and dropping it would quietly overstate how connected the platform is.
+    """
+    agents = await agents_repo.get_all()
+    connectors = await connectors_repo.get_all()
+    tools = {t["id"]: t for t in await tools_repo.get_all()}
+    traffic = await tool_calls_repo.gateway_summary()
+
+    connectors_by_id = {c["id"]: c for c in connectors}
+
+    agent_nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+
+    for agent in agents:
+        aid = agent["config"]["identity"]["agent_id"]["value"]
+        refs = agent["config"]["tooling"]["bound_tools"]["value"] or []
+        bound = [parse_tool_ref(r) for r in refs]
+
+        served: dict[str, list[str]] = {}
+        local: list[str] = []
+        unknown: list[str] = []
+        for tid in bound:
+            tool = tools.get(tid)
+            if tool is None:
+                unknown.append(tid)
+            elif tool["connector_id"] is None:
+                local.append(tid)
+            else:
+                served.setdefault(tool["connector_id"], []).append(tid)
+
+        for cid, tids in sorted(served.items()):
+            connector = connectors_by_id.get(cid)
+            edges.append(
+                {
+                    "agent_id": aid,
+                    "connector_id": cid,
+                    "tools": sorted(tids),
+                    # Carried on the edge so the view can colour a line without
+                    # re-joining to the connector list — the same reason
+                    # `connector_resolution` returns `offline`/`unhealthy`.
+                    "status": connector["status"] if connector else "unknown",
+                }
+            )
+
+        agent_nodes.append(
+            {
+                "agent_id": aid,
+                "name": agent["config"]["identity"]["agent_name"]["value"],
+                "lifecycle_status": agent["config"]["lifecycle"]["lifecycle_status"]["value"],
+                "governance_path": agent["governance_path"],
+                # A critical agent needs a human on every call — worth seeing on
+                # the diagram, because it is the one per-agent fact that changes
+                # what the gateway does.
+                "requires_hitl": agent["governance_path"] in HITL_GOVERNANCE_PATHS,
+                "bound_tools": sorted(bound),
+                "connector_ids": sorted(served),
+                "local_tools": sorted(local),
+                "unknown_tools": sorted(unknown),
+                "calls": traffic["by_agent"].get(aid, {"calls": 0, "denied": 0}),
+            }
+        )
+
+    connector_nodes = []
+    for c in connectors:
+        served_tools = [t["id"] for t in tools.values() if t["connector_id"] == c["id"]]
+        connector_nodes.append(
+            {
+                "connector_id": c["id"],
+                "name": c["name"],
+                "status": c["status"],
+                "transport": c["transport"],
+                "live": is_live_connector(c),
+                "tools": sorted(served_tools),
+                "boundary_declared": bool(c["allowed_datasets"]),
+                "identities_declared": bool(c["approved_identities"]),
+                "rate_limit_per_min": c["rate_limit_per_min"],
+                "calls": traffic["by_connector"].get(c["id"], {"calls": 0, "denied": 0, "live": 0}),
+            }
+        )
+
+    agent_nodes.sort(key=lambda a: a["name"])
+    connector_nodes.sort(key=lambda c: c["name"])
+
+    return {
+        "agents": agent_nodes,
+        "connectors": connector_nodes,
+        "edges": edges,
+        "checkpoints": list(CHECKPOINTS),
+        "traffic": traffic,
+        "summary": {
+            "agents": len(agent_nodes),
+            "connectors": len(connector_nodes),
+            "edges": len(edges),
+            # The number the diagram exists to make obvious: without a gateway
+            # these would be point-to-point integrations, one per edge.
+            "point_to_point_avoided": len(edges),
+            "local_only_tools": sorted(t["id"] for t in tools.values() if t["connector_id"] is None),
+            "unrouted_agents": sorted(a["agent_id"] for a in agent_nodes if not a["connector_ids"]),
+        },
     }

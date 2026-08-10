@@ -16,10 +16,11 @@ document's content here** — that is how five files drift into five answers.
 | **`CONCERNS.md`** | **every** open question, risk, divergence, environment trap, unverified item | ❌ internal |
 | `ROADMAP.md` | the sequenced build plan; what the deck/SOW demand and in what order | ❌ internal |
 | `MCP_WORKSTREAM.md` | where the workstream stands; what shipped when | ❌ internal |
-| `ARCHITECTURE.md` | system design, per-phase deep dives (§8–§16), conventions, gotchas | ✅ |
-| `README.md` | product framing and the demo script | ✅ |
+| `ARCHITECTURE.md` | system design, per-phase deep dives (§8–§17), conventions, gotchas | ✅ |
+| `README.md` | product framing and the whole-console demo script | ✅ |
+| `DEMO_TOOLS_MCP.md` | **the Phases 0–7 walkthrough** — what to click, what to say, what is enforced but invisible | ❌ internal |
 
-> **The four internal documents are gitignored on purpose** — they quote the SOW
+> **The five internal documents are gitignored on purpose** — they quote the SOW
 > and Week-11 commercial terms. Concern ids (**R3**, **Q13**, **V9**, …) point at
 > a register a fresh clone will not have; ask the workstream owner. Everything
 > needed to *build* safely is in this file and `ARCHITECTURE.md`.
@@ -112,7 +113,7 @@ npm run test              # 4 frontend kernel suites (smoke/engine/playground/ca
 ```
 
 **The local reference MCP server** — the counterparty for Phases 5A and 6. Needed
-by two suites (both skip cleanly without it) and by the V8/V9 browser passes:
+by two suites (both skip cleanly without it) and by the V8–V10 browser passes:
 
 ```powershell
 $env:PYTHONPATH="backend"
@@ -133,7 +134,7 @@ backend\.venv\Scripts\python.exe backend\verify_tool_governance.py     #  70
 backend\.venv\Scripts\python.exe backend\verify_bound_tools_guard.py   #  34
 backend\.venv\Scripts\python.exe backend\verify_connector_backlog.py   #  43
 backend\.venv\Scripts\python.exe backend\verify_mcp_client.py          #  69  (needs :9100)
-backend\.venv\Scripts\python.exe backend\verify_tool_gateway.py        # 215  (needs :9100)
+backend\.venv\Scripts\python.exe backend\verify_tool_gateway.py        # 233  (needs :9100)
 ```
 
 Backend venv: `backend/.venv` (`backend\.venv\Scripts\python.exe`).
@@ -286,7 +287,9 @@ the Anthropic calls too. Fine for a local POC — the SOW explicitly blesses
 sandbox/mock approaches — but **do not present the current model layer as the
 target** (**R5**).
 
-## Where we are — 2026-08-11, Phase 6 shipped
+## Where we are — 2026-08-11, the build plan is complete
+
+**Phases 0–7 are shipped. Nothing further is engineering-gated.**
 
 **Slide 21 is 6 of 7 elements complete.** The seventh, *Reusable Tool Adapters*,
 is partial **by contract rather than by omission**: the pattern is built and
@@ -303,6 +306,7 @@ SOW scopes out of the 90 days.
 | 4 | Connector prioritization backlog (slide 21 el. 7) — recommends **Jira** | 08-05 | §14 |
 | 5A | **The real MCP client**, spec 2026-07-28 | 08-10 | §15 |
 | 6 | **The policy-enforcing gateway** (slide 21 el. 1, 4, 5) | 08-11 | §16 |
+| 7 | **The MCP gateway view** — slide 21 element 1's picture | 08-11 | §17 |
 
 ### Phase 6 in one paragraph
 
@@ -323,36 +327,41 @@ the data, not a footnote — `gateway = FALSE` is client-reported;
 
 ### Status — all green
 
-8 backend suites, **581 assertions** (51 · 58 · 41 · 70 · 34 · 43 · 69 · 215) ·
+8 backend suites, **599 assertions** (51 · 58 · 41 · 70 · 34 · 43 · 69 · 233) ·
 `npm run test` 4/4 · `tsc -b --noEmit` clean · `npm run build` clean.
 
-**Not verified:** any of it in a browser. **`CONCERNS.md` V1–V9** hold the
-click-through scripts, one per phase — V9 is Phase 6's.
+**Not verified:** any of it in a browser. **`CONCERNS.md` V1–V10** hold the
+click-through scripts, one per phase — V10 is Phase 7's.
+
+**One thing the last phase found: `CONCERNS.md` R12.** The dev database has
+accumulated **77 connectors**, 72 of them `zz-verify-*` residue from
+`verify_connector_crud.py` runs, which has no teardown. Every list view sorts
+them to the bottom where nobody scrolls; the gateway view is the first surface
+that renders all connectors at once. The view hides unreferenced ones and states
+the count, but the rows are still there — clean them before any demo.
 
 ## Next steps
 
-**`ROADMAP.md` §4 has the plan. Phase 7 is next, and it is the last phase this
-workstream can build.**
+**The build plan is done.** `ROADMAP.md` §4 has all eight phases; every one is
+shipped. **Nothing remaining is engineering-gated** — do not go looking for the
+next feature to build in this workstream without checking the table below first.
 
-1. **Phase 7 — the MCP Gateway view** (slide 21 element 1's *diagram*; the
-   enforcement shipped in Phase 6). Agents → gateway → connectors → systems, with
-   the checkpoints marked. Read-only over what already exists: Phase 0's resolver
-   for edges, `GET /v1/gateway/policy` for the chain, `tool_calls?gateway=true`
-   for traffic. **No new tables and no new enforcement** — if it needs either,
-   something upstream was left unfinished.
-
-Everything after that is gated on someone other than us:
-
-| | Gated on |
+| What is left | Gated on |
 |---|---|
 | **Phase 5B** — point the client at a real Brightspeed system. Access-gated, **not** engineering-gated | **Q10** (Atlassian Cloud or on-prem — cheapest to answer and the only one that can invalidate Jira as the target), **Q13** (ranking sign-off), **R9** (tenant, OAuth app, credentials — longest lead, open in parallel) |
 | **Phase 8** — connector expansion | the SOW scopes it out of the 90 days |
 | **Q6 / D4 / D5** — the write-exception cluster, one question wearing four ids | a governance decision |
 | **Q14** — strict-by-default data boundaries | a governance decision **plus** a real dataset inventory per connector |
+| **V1–V10** — every browser pass | a human with a browser (**R1**) |
+| **R11** — retire or gate `POST /v1/tool-calls` | us, once nothing calls it |
+| **R12** — clean the `zz-verify-*` residue and give `verify_connector_crud.py` a teardown | us |
 
 **The signal to watch for on 5B:** it should be small — swap an endpoint, add an
 auth mode, run the same `tools/list`. If it turns out large, Phase 5A leaked POC
 assumptions past the seam.
+
+**If you are asked what to do next and none of the above is unblocked**, the
+honest answer is the browser passes and R11/R12, not a new feature.
 
 ## Two things not to overclaim
 

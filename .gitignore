@@ -11,10 +11,8 @@ backend/.venv
 # internal — not published. These quote the SOW and carry commercial detail.
 # CLAUDE.md is deliberately NOT in this list: it is the handoff doc and ships
 # redacted (no key status, no auth/CORS detail, no local paths).
-AGENT_OPS_CONSOLE_MASTER_BUILD_SPEC.md
-ROADMAP.md
-MCP_WORKSTREAM.md
 CONCERNS.md
+DEMO_TOOLS_MCP.md
 
 
 # server env / secrets

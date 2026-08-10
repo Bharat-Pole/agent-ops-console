@@ -381,6 +381,114 @@ def layer_denials() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Layer 2b — the gateway view's data (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+def layer_graph() -> None:
+    """The view is a *derivation*, so the assertions are about consistency.
+
+    Nothing here can be proved by looking at the graph alone — every number has
+    to agree with the source it was derived from. That is the whole risk with a
+    read-only view: it can drift from the thing it depicts and still render
+    beautifully.
+    """
+    print("\n[2b] Gateway graph (Phase 7)")
+
+    g = get("/v1/gateway/graph")
+    policy = get("/v1/gateway/policy")
+    bootstrap = get("/v1/bootstrap")
+
+    # --- it depicts the same chain the gateway enforces ---------------------
+    check(
+        "the graph publishes the enforced checkpoint chain",
+        [c["id"] for c in g["checkpoints"]] == [c["id"] for c in policy["checkpoints"]],
+    )
+
+    # --- nodes agree with the registries ------------------------------------
+    check(
+        "every registered agent is a node",
+        len(g["agents"]) == len(bootstrap["agents"]),
+        f"{len(g['agents'])} vs {len(bootstrap['agents'])}",
+    )
+    check(
+        "every connector is a node",
+        len(g["connectors"]) == len(bootstrap["connectors"]),
+        f"{len(g['connectors'])} vs {len(bootstrap['connectors'])}",
+    )
+    check(
+        "an agent with no MCP route is still a node",
+        any(not a["connector_ids"] for a in g["agents"]),
+        "dropping them would overstate how connected the platform is",
+    )
+
+    # --- edges are real, and only real --------------------------------------
+    agent_ids = {a["agent_id"] for a in g["agents"]}
+    connector_ids = {c["connector_id"] for c in g["connectors"]}
+    check("every edge starts at a known agent", all(e["agent_id"] in agent_ids for e in g["edges"]))
+    check("every edge ends at a known connector", all(e["connector_id"] in connector_ids for e in g["edges"]))
+    check("every edge names the tools that justify it", all(e["tools"] for e in g["edges"]))
+    check(
+        "edge count matches the summary",
+        g["summary"]["edges"] == len(g["edges"]) == g["summary"]["point_to_point_avoided"],
+    )
+
+    # An edge must be derivable from the agent's own bound_tools — this is the
+    # assertion that catches the view drifting from the resolver.
+    by_agent = {a["agent_id"]: a for a in g["agents"]}
+    consistent = all(
+        e["connector_id"] in by_agent[e["agent_id"]]["connector_ids"]
+        and set(e["tools"]) <= set(by_agent[e["agent_id"]]["bound_tools"])
+        for e in g["edges"]
+    )
+    check("every edge is derivable from that agent's bound_tools", consistent)
+
+    # --- local tools are counted, never given a fake node -------------------
+    check(
+        "local tools are reported separately",
+        len(g["summary"]["local_only_tools"]) >= 5,
+        "5 of the 12 seeded tools reach no MCP server",
+    )
+    check(
+        "no local tool leaked in as a connector",
+        not (set(g["summary"]["local_only_tools"]) & connector_ids),
+        "a placeholder node would misrepresent the estate",
+    )
+
+    # --- traffic is aggregated over GATEWAY rows only -----------------------
+    t = g["traffic"]
+    check("traffic splits allow vs deny", t["total"] == t["allowed"] + t["denied"], str(t))
+    check("live + simulated never exceeds allowed", t["live"] + t["simulated"] <= t["allowed"])
+    check("denials are attributed to checkpoints", sum(t["by_checkpoint"].values()) == t["denied"], str(t["by_checkpoint"]))
+    check(
+        "every attributed checkpoint is one the gateway actually has",
+        set(t["by_checkpoint"]) <= set(CHECKPOINT_IDS),
+        str(set(t["by_checkpoint"]) - set(CHECKPOINT_IDS)),
+    )
+
+    gateway_rows = get("/v1/tool-calls?gateway=true&limit=1000")["toolCalls"]
+    check(
+        "the traffic total counts gateway rows, not reported ones",
+        t["total"] >= len(gateway_rows),
+        "aggregated in SQL and uncapped; the row fetch is capped at 1000",
+    )
+    reported = get("/v1/tool-calls?gateway=false&limit=1000")["toolCalls"]
+    if reported:
+        check(
+            "client-reported rows are excluded from the view",
+            t["total"] < len(gateway_rows) + len(reported),
+            "the gateway view draws what the gateway did",
+        )
+
+    # --- the view carries the governance gaps -------------------------------
+    check(
+        "connectors report whether a boundary is declared",
+        all("boundary_declared" in c and "identities_declared" in c for c in g["connectors"]),
+        "an undeclared boundary is most visible on the diagram",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Layer 3 — the two PATCH routes stay disjoint
 # ---------------------------------------------------------------------------
 
@@ -615,6 +723,7 @@ async def main() -> int:
 
     layer_policy()
     layer_denials()
+    layer_graph()
     layer_isolation()
 
     if _reference_server_up():

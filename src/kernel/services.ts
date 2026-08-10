@@ -106,6 +106,54 @@ export interface GatewayPolicyResponse {
   })[];
 }
 
+// Phase 7 — the gateway view's data. Pure derivation server-side: agents,
+// connectors, the edges between them, the checkpoint chain, and aggregate
+// counts over `tool_calls`. No new tables and no new enforcement.
+export interface GatewayGraphAgent {
+  agent_id: string;
+  name: string;
+  lifecycle_status: string;
+  governance_path: string;
+  requires_hitl: boolean;
+  bound_tools: string[];
+  connector_ids: string[];
+  local_tools: string[];   // reach no MCP server — counted, never given a fake node
+  unknown_tools: string[];
+  calls: { calls: number; denied: number };
+}
+
+export interface GatewayGraphConnector {
+  connector_id: string;
+  name: string;
+  status: string;
+  transport: string;
+  live: boolean;
+  tools: string[];
+  boundary_declared: boolean;
+  identities_declared: boolean;
+  rate_limit_per_min: number;
+  calls: { calls: number; denied: number; live: number };
+}
+
+export interface GatewayGraphResponse {
+  agents: GatewayGraphAgent[];
+  connectors: GatewayGraphConnector[];
+  edges: { agent_id: string; connector_id: string; tools: string[]; status: string }[];
+  checkpoints: GatewayCheckpoint[];
+  traffic: {
+    total: number; allowed: number; denied: number; live: number; simulated: number;
+    by_checkpoint: Record<string, number>;
+    by_connector: Record<string, { calls: number; denied: number; live: number }>;
+    by_agent: Record<string, { calls: number; denied: number }>;
+  };
+  summary: {
+    agents: number; connectors: number; edges: number;
+    point_to_point_avoided: number;
+    local_only_tools: string[];
+    unrouted_agents: string[];
+  };
+}
+
 // A denied call is a 200 with `allowed: false`, never an HTTP error — see
 // backend routes/gateway.py for why.
 export interface GatewayCallResponse {
@@ -785,6 +833,18 @@ export const services = {
       return (await res.json()) as GatewayPolicyResponse;
     } catch {
       ws().pushToast('err', 'Could not reach the server — gateway policy unavailable.');
+      return null;
+    }
+  },
+
+  // GET /v1/gateway/graph — Phase 7. Agents → gateway → connectors → systems.
+  async getGatewayGraph(): Promise<GatewayGraphResponse | null> {
+    try {
+      const res = await fetch('/v1/gateway/graph');
+      if (!res.ok) return null;
+      return (await res.json()) as GatewayGraphResponse;
+    } catch {
+      ws().pushToast('err', 'Could not reach the server — gateway graph unavailable.');
       return null;
     }
   },
