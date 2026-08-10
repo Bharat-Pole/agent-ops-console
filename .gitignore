@@ -8,9 +8,18 @@ __pycache__
 *.pyc
 backend/.venv
 
-# internal — not published. These quote the SOW and carry commercial detail.
-# CLAUDE.md is deliberately NOT in this list: it is the handoff doc and ships
-# redacted (no key status, no auth/CORS detail, no local paths).
+# Which documents ship — decided 2026-08-11 (CONCERNS R13).
+#
+# ROADMAP.md, MCP_WORKSTREAM.md and AGENT_OPS_CONSOLE_MASTER_BUILD_SPEC.md were
+# removed from this list ON PURPOSE. They quote the SOW, but without them a
+# clone cannot resume development — a colleague needs the build plan and the
+# workstream status to pick the work up at all. Do not re-add them.
+#
+# CLAUDE.md likewise ships, redacted (no key status, no auth/CORS detail, no
+# local paths).
+#
+# These two stay out: CONCERNS.md is the unresolved-risk register, and the demo
+# script carries verbal framing that is not for the client.
 CONCERNS.md
 DEMO_TOOLS_MCP.md
 

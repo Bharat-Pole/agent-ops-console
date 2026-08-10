@@ -20,8 +20,12 @@ document's content here** — that is how five files drift into five answers.
 | `README.md` | product framing and the whole-console demo script | ✅ |
 | `DEMO_TOOLS_MCP.md` | **the Phases 0–7 walkthrough** — what to click, what to say, what is enforced but invisible | ❌ internal |
 
-> **The five internal documents are gitignored on purpose** — they quote the SOW
-> and Week-11 commercial terms. Concern ids (**R3**, **Q13**, **V9**, …) point at
+> **Most of these ship with the repo, deliberately.** `ROADMAP.md`,
+> `MCP_WORKSTREAM.md` and the Master Build Spec are tracked so a clone is
+> resumable, even though they quote the SOW (**R13**). **Only `CONCERNS.md` and
+> `DEMO_TOOLS_MCP.md` are gitignored** — so concern ids cited throughout resolve
+> for a teammate with the repo, but not from a bare clone. Ask the workstream
+> owner for the register. Concern ids (**R3**, **Q13**, **V9**, …) point at
 > a register a fresh clone will not have; ask the workstream owner. Everything
 > needed to *build* safely is in this file and `ARCHITECTURE.md`.
 
@@ -270,6 +274,7 @@ Detail lives in `CONCERNS.md`; these are the one-liners plus what to do.
 | **R1** | **No browser automation.** Backend suites + typecheck are the real verification; UI click-throughs need a human. Don't install a heavy toolchain without asking |
 | **R3** | `.env` holds provider keys and is gitignored. **`.env.example` is committed and must contain placeholders only** — it once held live keys verbatim, and `start.ps1` copies it to `.env` by design |
 | **R4** | The repo is its own git repo on branch `soham/tools-mcp`. **The parent `Documents/Projects` repo is a different repo — never push that remote from here.** `*.docx/pptx/pdf/xlsx` are gitignored (the signed SOW was found in the project root); do not narrow that rule |
+| **R13** | `ROADMAP.md`, `MCP_WORKSTREAM.md` and the Master Build Spec **ship on purpose** — a clone is not resumable without them. Only `CONCERNS.md` and `DEMO_TOOLS_MCP.md` are ignored. General lesson: **`.gitignore` does not retroactively untrack — `git ls-files` is the only answer** |
 | **R6** | **No auth or CORS layer. Run on localhost only; do not deploy or expose as-is** |
 
 **On E4 specifically — what still works.** No governance path touches a model.
