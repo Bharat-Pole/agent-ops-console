@@ -18,9 +18,10 @@ import asyncio
 import uuid
 from typing import Any
 
-from app.domains.knowledge import knowledge_chunks_repo, knowledge_sources_repo, pipeline_runs_repo
+from app.domains.knowledge import knowledge_chunks_repo, knowledge_documents_repo, knowledge_sources_repo, pipeline_runs_repo
 from app.domains.knowledge.embeddings_service import embed_batch, is_embeddings_configured
 from app.domains.knowledge.ingestion.chunker import chunk_text
+from app.domains.knowledge.ingestion.document_splitter import split_documents
 from app.domains.knowledge.ingestion.parsers import fetch_url, parse_by_mime
 
 EMBED_BATCH_SIZE = 100
@@ -109,20 +110,28 @@ async def _execute_pipeline(source_id: str, run_id: str) -> None:
         return
 
     # ── Stage 3: CHUNK ────────────────────────────────────────────────────────
-    await pipeline_runs_repo.start_stage(run_id, "chunk", items_total=1)
+    # A source's raw text may actually be N real fetched items flattened
+    # together (N Confluence pages, N Jira issues, ...) — split back into real
+    # per-document boundaries before chunking, so each document keeps its own
+    # doc_id and can carry its own governance tags (see knowledge_documents).
+    split_docs = split_documents(source["source_type"], raw_text, source["name"])
+    await pipeline_runs_repo.start_stage(run_id, "chunk", items_total=len(split_docs))
     try:
-        doc_id = source["uri"]
-        chunks = chunk_text(
-            raw_text,
-            doc_id=doc_id,
-            chunk_size=source.get("chunk_size") or 800,
-            chunk_overlap=source.get("chunk_overlap") or 100,
-        )
+        chunks = []
+        for doc in split_docs:
+            chunks.extend(
+                chunk_text(
+                    doc.text,
+                    doc_id=knowledge_documents_repo.document_id(source_id, doc.doc_ref),
+                    chunk_size=source.get("chunk_size") or 800,
+                    chunk_overlap=source.get("chunk_overlap") or 100,
+                )
+            )
     except Exception as e:
         await pipeline_runs_repo.fail_stage(run_id, "chunk", str(e))
         raise
 
-    await pipeline_runs_repo.finish_stage(run_id, "chunk", items_done=len(chunks))
+    await pipeline_runs_repo.finish_stage(run_id, "chunk", items_done=len(split_docs))
 
     if not chunks:
         await pipeline_runs_repo.fail_stage(run_id, "chunk", "No text chunks produced — document may be empty or unreadable.")
@@ -179,6 +188,15 @@ async def _execute_pipeline(source_id: str, run_id: str) -> None:
         raise
 
     await pipeline_runs_repo.finish_stage(run_id, "store", items_done=stored)
+
+    # Real per-document rows — one per split document, tagged with the parent
+    # source's current values as defaults (never overwritten on re-index).
+    defaults = {
+        "domain": source.get("domain"), "owner": source.get("owner"),
+        "sensitivity": source.get("sensitivity", "internal"), "valid_until": source.get("valid_until"),
+    }
+    for doc in split_docs:
+        await knowledge_documents_repo.upsert_from_ingestion(source_id, doc.doc_ref, doc.title, defaults)
 
     # ── Stage 6: FINALIZE ─────────────────────────────────────────────────────
     await pipeline_runs_repo.start_stage(run_id, "finalize", items_total=1)

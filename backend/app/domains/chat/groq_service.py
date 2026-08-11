@@ -8,6 +8,7 @@ from app.domains.chat.tool_execution import (
     build_system_prompt,
     execute_tool,
     get_bound_sources,
+    get_citation_format,
     openai_tool_defs,
 )
 
@@ -66,6 +67,11 @@ async def chat_with_agent(
     score_threshold = data_cfg.get("score_threshold", {}).get("value")
     if score_threshold is None:
         score_threshold = 0.35
+    rerank_enabled = data_cfg.get("rerank_enabled", {}).get("value")
+    if rerank_enabled is None:
+        rerank_enabled = True
+    agent_id_str = agent["config"]["identity"]["agent_id"]["value"]
+    citation_format = await get_citation_format(agent)
 
     tools: list[dict[str, Any]] = []
     source_kind_by_id: dict[str, str] = {}
@@ -118,7 +124,8 @@ async def chat_with_agent(
             except json.JSONDecodeError:
                 args = {}
             content, retrieval_entries, citations = await execute_tool(
-                tc.function.name, args, source_kind_by_id, top_k, score_threshold
+                tc.function.name, args, source_kind_by_id, top_k, score_threshold,
+                rerank_enabled=rerank_enabled, agent_id=agent_id_str, citation_format=citation_format,
             )
             all_retrieval.extend(retrieval_entries)
             all_citations.extend(citations)

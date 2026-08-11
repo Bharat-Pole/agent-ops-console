@@ -116,6 +116,17 @@ CREATE TABLE IF NOT EXISTS prompts (
   used_by_json   JSONB NOT NULL DEFAULT '[]',
   history_json   JSONB NOT NULL DEFAULT '[]'
 );
+ALTER TABLE prompts ADD COLUMN IF NOT EXISTS domain     TEXT;
+ALTER TABLE prompts ADD COLUMN IF NOT EXISTS use_case   TEXT;
+ALTER TABLE prompts ADD COLUMN IF NOT EXISTS risk_tier  TEXT;
+ALTER TABLE prompts ADD COLUMN IF NOT EXISTS agent_type TEXT;
+-- Structured citation template (Blueprint 3.3 "configure citation rules") —
+-- a citation-kind prompt's `body` is free text for the LLM to read as an
+-- instruction; this is a real, mechanically-applied format the backend uses
+-- to render the system-generated citation strings, e.g.
+-- "({doc_title}, source: {source_name})". Placeholders: {source_name}
+-- {source_id} {doc_id} {doc_title}. NULL = use the platform default format.
+ALTER TABLE prompts ADD COLUMN IF NOT EXISTS citation_format TEXT;
 
 -- ── Evaluation Runs (Blueprint §6 core data object "Evaluation Run") ──────────
 -- eval_packs.pack_json.last_run holds only the MOST RECENT run (unchanged,
@@ -254,9 +265,61 @@ CREATE TABLE IF NOT EXISTS knowledge_sources (
   updated_at    TEXT NOT NULL
 );
 ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS used_by_json JSONB NOT NULL DEFAULT '[]';
+-- Upload-time approval gate (Blueprint 3.2 "Upload approved documents") — a
+-- gated-sensitivity source starts life needing sign-off before it can be
+-- ingested/queried, mirroring the existing bind-time approval gate.
+ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS approval_status TEXT NOT NULL DEFAULT 'approved';
+-- Content category (Blueprint 3.2 supported-source prose: runbooks, policy
+-- documents, MDR/golden data, internal business rules, logs/evidence) — these
+-- aren't distinct connector protocols, just a content classification layered
+-- on top of whatever connector actually fetched the bytes.
+ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS category TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_ks_status ON knowledge_sources(status);
 CREATE INDEX IF NOT EXISTS idx_ks_created ON knowledge_sources(created_at DESC);
+
+-- ── Knowledge Documents ────────────────────────────────────────────────────────
+-- A source can fetch more than one discrete content unit (a Confluence space
+-- pulls N pages, a Jira JQL pulls N issues, a GitHub path pulls N files, a
+-- ServiceNow query pulls N records) — each such unit is a real, independently
+-- taggable "document" (Blueprint 3.2 "tag documents by domain/owner/sensitivity/
+-- validity/usage"). Single-item sources (file/url/text/database/bigquery) get
+-- exactly one row here too, so every source uniformly has >=1 document.
+CREATE TABLE IF NOT EXISTS knowledge_documents (
+  id              TEXT PRIMARY KEY,
+  source_id       TEXT NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE,
+  doc_ref         TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  domain          TEXT,
+  owner           TEXT,
+  sensitivity     TEXT NOT NULL DEFAULT 'internal',
+  valid_until     TEXT,
+  lifecycle       TEXT NOT NULL DEFAULT 'active',
+  last_queried_at TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  UNIQUE (source_id, doc_ref)
+);
+CREATE INDEX IF NOT EXISTS idx_kdoc_source ON knowledge_documents(source_id);
+
+-- ── Retrieval Test Runs (Blueprint 3.3 "Retrieval test results" key output) ────
+-- Was purely ephemeral — the Retrieval Test panel showed real numbers per
+-- call but nothing survived a page refresh. Every real /retrieve call now
+-- persists a summary so past test results are a real, durable artifact.
+CREATE TABLE IF NOT EXISTS retrieval_test_runs (
+  id                  TEXT PRIMARY KEY,
+  query               TEXT NOT NULL,
+  source_ids_json     JSONB NOT NULL,
+  top_k               INT NOT NULL,
+  score_threshold     DOUBLE PRECISION NOT NULL,
+  rerank_enabled      BOOLEAN NOT NULL,
+  result_count        INT NOT NULL,
+  passed_count        INT NOT NULL,
+  latency_ms          DOUBLE PRECISION NOT NULL,
+  estimated_cost_usd  DOUBLE PRECISION,
+  created_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rtr_created ON retrieval_test_runs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ks_lifecycle ON knowledge_sources(lifecycle);
 
 -- Carries which binding a pending approval is about (e.g. 'kb://<source_id>'),

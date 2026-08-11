@@ -11,7 +11,7 @@ type Tab = 'file' | 'url' | 'text' | 'database' | 'confluence' | 'jira' | 'githu
 interface Props {
   open: boolean;
   onClose: () => void;
-  onCreated: (sourceId: string, runId: string) => void;
+  onCreated: (sourceId: string, runId: string | null) => void;
 }
 
 const SENSITIVITY_OPTIONS = ['public', 'internal', 'confidential', 'restricted'] as const;
@@ -122,6 +122,7 @@ export function AddSourceModal({ open, onClose, onCreated }: Props) {
   const [owner, setOwner] = useState('');
   const [tags, setTags] = useState('');
   const [validUntil, setValidUntil] = useState('');
+  const [category, setCategory] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [chunkSize, setChunkSize] = useState(800);
   const [chunkOverlap, setChunkOverlap] = useState(100);
@@ -139,13 +140,13 @@ export function AddSourceModal({ open, onClose, onCreated }: Props) {
     setSensitivity('internal');
     setIngestionMode('hybrid');
     setEmbeddingProvider('openai');
-    setDomain(''); setOwner(''); setTags(''); setValidUntil('');
+    setDomain(''); setOwner(''); setTags(''); setValidUntil(''); setCategory('');
     setShowAdvanced(false); setChunkSize(800); setChunkOverlap(100);
   }
 
   function sharedMeta() {
     return {
-      domain: domain.trim(), owner: owner.trim(), tags, valid_until: validUntil,
+      domain: domain.trim(), owner: owner.trim(), tags, valid_until: validUntil, category: category || undefined,
       chunk_size: chunkSize, chunk_overlap: chunkOverlap, embedding_provider: embeddingProvider,
       ingestion_mode: ingestionMode,
     };
@@ -184,6 +185,7 @@ export function AddSourceModal({ open, onClose, onCreated }: Props) {
         form.append('owner', owner.trim());
         form.append('tags', tags);
         form.append('valid_until', validUntil);
+        if (category) form.append('category', category);
         form.append('chunk_size', String(chunkSize));
         form.append('chunk_overlap', String(chunkOverlap));
         form.append('embedding_provider', embeddingProvider);
@@ -604,6 +606,18 @@ export function AddSourceModal({ open, onClose, onCreated }: Props) {
             <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className={inputCls} />
           </label>
         </div>
+        <label className={labelCls}>
+          Category
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
+            <option value="">—</option>
+            <option value="runbook">Runbook</option>
+            <option value="policy_document">Policy document</option>
+            <option value="mdr_golden_data">MDR / golden data asset</option>
+            <option value="internal_business_rule">Internal business rule</option>
+            <option value="logs_evidence">Logs / evidence file</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
 
         {/* Advanced — configurable chunking (blueprint 3.3 RAG Pipeline Studio) */}
         <div className="rounded-lg border border-border">

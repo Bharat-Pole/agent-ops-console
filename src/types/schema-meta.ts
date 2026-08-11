@@ -72,6 +72,7 @@ export const SCHEMA_GROUPS: SchemaGroupMeta[] = [
       'chunk_overlap',
       'top_k',
       'score_threshold',
+      'rerank_enabled',
       'knowledge_source_refs',
       'structured_grounding',
     ],

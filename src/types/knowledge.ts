@@ -8,6 +8,7 @@ export type KnowledgeSourceType =
   | 'confluence' | 'jira' | 'github' | 'servicenow' | 'bigquery';
 export type KnowledgeSensitivity = 'public' | 'internal' | 'confidential' | 'restricted';
 export type KnowledgeLifecycle = 'active' | 'retired';
+export type KnowledgeApprovalStatus = 'approved' | 'pending' | 'rejected';
 export type EmbeddingProvider = 'openai' | 'local_bge_small';
 
 export interface RealKnowledgeSource {
@@ -34,6 +35,26 @@ export interface RealKnowledgeSource {
   embedding_provider: EmbeddingProvider;
   used_by: string[];
   has_raw_text: boolean;
+  approval_status: KnowledgeApprovalStatus;
+  category: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Real per-item breakdown within a source (a Confluence space's N pages, a
+// Jira JQL's N issues, ...) — every source has >=1 row here, even single-item
+// ones (file/url/text/database/bigquery get exactly one "primary" document).
+export interface KnowledgeDocument {
+  id: string;
+  source_id: string;
+  doc_ref: string;
+  title: string;
+  domain: string | null;
+  owner: string | null;
+  sensitivity: KnowledgeSensitivity;
+  valid_until: string | null;
+  lifecycle: KnowledgeLifecycle;
+  last_queried_at: string | null;
   created_at: string;
   updated_at: string;
 }

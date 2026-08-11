@@ -7,7 +7,7 @@ _COLS_NO_BLOB = (
     "id, name, source_type, mime_type, uri, status, sensitivity, ingestion_mode, "
     "chunk_count, size_bytes, error_msg, domain, owner, tags, valid_until, lifecycle, "
     "last_queried_at, chunk_size, chunk_overlap, connector_config_masked, embedding_provider, "
-    "used_by_json, created_at, updated_at, "
+    "used_by_json, approval_status, category, created_at, updated_at, "
     "CASE WHEN raw_text IS NOT NULL THEN TRUE ELSE FALSE END AS has_raw_text"
 )
 
@@ -40,6 +40,8 @@ def _row_to_source(row: Any) -> dict[str, Any]:
         "connector_config_masked": row["connector_config_masked"],
         "embedding_provider": row.get("embedding_provider", "openai"),
         "used_by": row["used_by_json"] or [],
+        "approval_status": row["approval_status"],
+        "category": row["category"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "has_raw_text": row["has_raw_text"],
@@ -103,8 +105,8 @@ async def insert(source: dict[str, Any], file_content: Optional[bytes] = None) -
            (id, name, source_type, mime_type, file_content, uri, status,
             sensitivity, ingestion_mode, chunk_count, size_bytes,
             domain, owner, tags, valid_until, chunk_size, chunk_overlap,
-            connector_config_masked, embedding_provider, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)""",
+            connector_config_masked, embedding_provider, approval_status, category, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)""",
         source["id"],
         source["name"],
         source["source_type"],
@@ -124,6 +126,8 @@ async def insert(source: dict[str, Any], file_content: Optional[bytes] = None) -
         source.get("chunk_overlap", 100),
         source.get("connector_config_masked"),
         source.get("embedding_provider", "openai"),
+        source.get("approval_status", "approved"),
+        source.get("category"),
         now,
         now,
     )
@@ -136,13 +140,22 @@ async def update_metadata(
     owner: Optional[str] = None,
     tags: Optional[list[str]] = None,
     valid_until: Optional[str] = None,
+    category: Optional[str] = None,
 ) -> None:
     pool = get_pool()
     await pool.execute(
         """UPDATE knowledge_sources
-           SET domain=$2, owner=$3, tags=$4, valid_until=$5, updated_at=$6
+           SET domain=$2, owner=$3, tags=$4, valid_until=$5, category=$6, updated_at=$7
            WHERE id=$1""",
-        id_, domain, owner, (tags if tags is not None else []), valid_until, _now_iso(),
+        id_, domain, owner, (tags if tags is not None else []), valid_until, category, _now_iso(),
+    )
+
+
+async def set_approval_status(id_: str, approval_status: str) -> None:
+    pool = get_pool()
+    await pool.execute(
+        "UPDATE knowledge_sources SET approval_status=$2, updated_at=$3 WHERE id=$1",
+        id_, approval_status, _now_iso(),
     )
 
 

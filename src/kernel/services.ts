@@ -50,6 +50,16 @@ async function patchJson<T>(path: string, body: unknown): Promise<{ ok: boolean;
   }
 }
 
+async function getJson<T>(path: string): Promise<{ ok: boolean; status: number; data: T | null }> {
+  try {
+    const res = await fetch(path);
+    const data = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+}
+
 // Best-effort sync of an agent's current tracks/config/demo_mode to the
 // server, called after the client-simulated provisioning/pipeline jobs mutate
 // local state. Fire-and-forget — the local simulation stays the source of
@@ -490,55 +500,9 @@ export const services = {
     store.pushToast('info', status === 'live' ? 'Agent reactivated.' : `Agent ${status}.`);
   },
 
-  // POST /v1/knowledge/:id/refresh — manual pipeline run (Section 9.6). Unchanged simulation.
-  triggerPipeline(sourceId: string): void {
-    const store = ws();
-    const source = store.sources.find((s) => s.id === sourceId);
-    if (!source) return;
-    const runId = store.nextId('run');
-    const run: PipelineRun = {
-      id: runId, source_id: sourceId, trigger: 'manual', overall: 'in_progress', started_at: nowIso(),
-      stages: CONTENT_STEP_NAMES.map((n) => ({ name: n as PipelineRun['stages'][number]['name'], status: 'not_started', started_at: null, duration_s: null, items: null })),
-    };
-    store.addPipelineRun(run);
-    startJob(
-      'content_index',
-      `Pipeline refresh · ${source.name}`,
-      sourceId,
-      CONTENT_STEP_NAMES.map((n, i) => ({
-        label: n,
-        ms: latency(600, 1200),
-        onStep: () => {
-          ws().patchPipelineRun(runId, (r) => ({
-            ...r,
-            stages: r.stages.map((s, si) => (si <= i ? { ...s, status: 'ready', started_at: s.started_at ?? nowIso(), duration_s: 10, items: source.document_count } : s)),
-            overall: i === CONTENT_STEP_NAMES.length - 1 ? 'ready' : 'in_progress',
-          }));
-        },
-      })),
-      () => {
-        ws().agents.forEach((a) => {
-          if (a.config.data.knowledge_source_refs.value.some((r) => r.includes(sourceId))) {
-            const id = agentId(a);
-            ws().patchAgent(id, (ag) => ({
-              ...ag,
-              demo_mode: false,
-              tracks: { ...ag.tracks, content: track('ready', ag.tracks.content.steps.map((s) => ({ ...s, status: 'ready', at: s.at ?? nowIso() }))) },
-            }));
-            services.maybeGoLive(id);
-            syncAgentToServer(id);
-          }
-        });
-        audit('pipeline_refresh', 'source', sourceId, `Manual re-index completed for ${source.name}.`);
-        ws().pushToast('ok', `${source.name} re-indexed.`);
-      },
-    );
-    audit('pipeline_refresh', 'source', sourceId, `Manual re-index started for ${source.name}.`);
-  },
-
   // ---- Prompt Repository (Section 9.4) — creation + approval, server-persisted ----
 
-  async createPrompt(input: { name: string; kind: PromptKind; category: PromptCategory; owner: string; body?: string; source?: 'manual' | 'llm_generated'; generated_from?: string | null }): Promise<string | null> {
+  async createPrompt(input: { name: string; kind: PromptKind; category: PromptCategory; owner: string; body?: string; source?: 'manual' | 'llm_generated'; generated_from?: string | null; domain?: string | null; use_case?: string | null; risk_tier?: RiskTier | null; agent_type?: CapabilityTier | null }): Promise<string | null> {
     const { ok, data } = await postJson<{ prompt: PromptAsset }>('/v1/prompts', input);
     if (!ok || !data) { ws().pushToast('err', 'Could not reach the server — prompt creation failed.'); return null; }
     ws().upsertPrompt(data.prompt);
@@ -562,20 +526,50 @@ export const services = {
     ws().pushToast('ok', `Drafted ${data.prompt.version}.`);
   },
 
-  async updatePromptFields(promptId: string, patch: Partial<Pick<PromptAsset, 'name' | 'kind' | 'category' | 'body' | 'owner'>>): Promise<void> {
-    try {
-      const res = await fetch(`/v1/prompts/${encodeURIComponent(promptId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data) { ws().pushToast('err', 'Could not reach the server — save failed.'); return; }
-      ws().upsertPrompt(data.prompt);
-      ws().pushToast('ok', 'Prompt saved.');
-    } catch {
-      ws().pushToast('err', 'Could not reach the server — save failed.');
-    }
+  async updatePromptFields(promptId: string, patch: Partial<Pick<PromptAsset, 'name' | 'kind' | 'category' | 'body' | 'owner' | 'domain' | 'use_case' | 'risk_tier' | 'agent_type' | 'citation_format'>>): Promise<void> {
+    const { ok, data } = await patchJson<{ prompt: PromptAsset }>(`/v1/prompts/${encodeURIComponent(promptId)}`, patch);
+    if (!ok || !data) { ws().pushToast('err', 'Could not reach the server — save failed.'); return; }
+    ws().upsertPrompt(data.prompt);
+    ws().pushToast('ok', 'Prompt saved.');
+  },
+
+  async comparePromptVersions(promptId: string, versionA: string, versionB: string): Promise<{ a: { version: string; date: string; body: string }; b: { version: string; date: string; body: string } } | null> {
+    const { ok, data, } = await getJson<{ a: { version: string; date: string; body: string }; b: { version: string; date: string; body: string } } & { message?: string }>(
+      `/v1/prompts/${encodeURIComponent(promptId)}/compare?a=${encodeURIComponent(versionA)}&b=${encodeURIComponent(versionB)}`,
+    );
+    if (!ok || !data) { ws().pushToast('err', (data as { message?: string } | null)?.message || 'Could not compare versions.'); return null; }
+    return data;
+  },
+
+  async rollbackPrompt(promptId: string, targetVersion: string): Promise<void> {
+    const store = ws();
+    const { ok, data } = await postJson<{ prompt: PromptAsset; auditEvent: import('@/types').AuditEvent; message?: string }>(
+      `/v1/prompts/${encodeURIComponent(promptId)}/rollback`,
+      { version: targetVersion, actorPersona: PERSONAS[store.ui.persona].label },
+    );
+    if (!ok || !data) { store.pushToast('err', 'Could not reach the server — rollback failed.'); return; }
+    if (!data.prompt) { store.pushToast('err', data.message || 'Rollback failed.'); return; }
+    store.upsertPrompt(data.prompt);
+    store.addAuditEvent(data.auditEvent);
+    store.pushToast('ok', `Rolled back to ${targetVersion} as ${data.prompt.version}.`);
+  },
+
+  async exportApprovedPromptPack(filters?: { domain?: string; agent_type?: string }): Promise<void> {
+    const qs = new URLSearchParams();
+    if (filters?.domain) qs.set('domain', filters.domain);
+    if (filters?.agent_type) qs.set('agent_type', filters.agent_type);
+    const { ok, data } = await getJson<{ generated_at: string; count: number; prompts: PromptAsset[] }>(
+      `/v1/prompts/approved-pack${qs.toString() ? `?${qs.toString()}` : ''}`,
+    );
+    if (!ok || !data) { ws().pushToast('err', 'Could not reach the server — export failed.'); return; }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `approved-prompt-pack-${data.generated_at.slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    ws().pushToast('ok', `Exported ${data.count} approved prompt(s).`);
   },
 
   async decidePrompt(promptId: string, decision: 'approved' | 'rejected'): Promise<void> {
@@ -590,6 +584,25 @@ export const services = {
     store.pushToast('ok', decision === 'approved' ? 'Prompt approved.' : 'Prompt rejected.');
   },
 
+  // Governance Officer only, gated client-side same as other persona-restricted
+  // actions in this app; server independently refuses if the prompt is still
+  // referenced by an agent ("deprecate instead of deleting").
+  async deletePrompt(promptId: string): Promise<boolean> {
+    const store = ws();
+    try {
+      const res = await fetch(`/v1/prompts/${encodeURIComponent(promptId)}?actorPersona=${encodeURIComponent(PERSONAS[store.ui.persona].label)}`, { method: 'DELETE' });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) { store.pushToast('err', body?.message || 'Could not reach the server — delete failed.'); return false; }
+      store.removePrompt(promptId);
+      if (body?.auditEvent) store.addAuditEvent(body.auditEvent);
+      store.pushToast('ok', 'Prompt deleted.');
+      return true;
+    } catch {
+      store.pushToast('err', 'Could not reach the server — delete failed.');
+      return false;
+    }
+  },
+
   async deprecatePrompt(promptId: string): Promise<void> {
     const store = ws();
     const { ok, data } = await postJson<{ prompt: PromptAsset; auditEvent: import('@/types').AuditEvent }>(
@@ -600,37 +613,6 @@ export const services = {
     store.upsertPrompt(data.prompt);
     store.addAuditEvent(data.auditEvent);
     store.pushToast('info', 'Prompt deprecated.');
-  },
-
-  // Knowledge & RAG has no backend route yet (client-simulated, like
-  // triggerPipeline/healthcheck below) — this is a real, immediate store
-  // mutation, not a placeholder. New sources start pending approval; nothing
-  // can bind to them until a Governance Officer approves the source.
-  addKnowledgeSource(input: { name: string; source_uri: string; parser: string; sensitivity: Sensitivity; refresh_cadence: RefreshCadence }): string {
-    const store = ws();
-    const id = store.nextId('src');
-    const source: KnowledgeSource = {
-      id,
-      name: input.name,
-      source_uri: prov(input.source_uri, 'user'),
-      parser: prov(input.parser, 'user'),
-      source_chunking: prov('recursive_1024_128', 'default'),
-      embedding_model: prov('vertex://text-embedding-004', 'default'),
-      index_target: prov(`vector://alloydb-${id}`, 'default'),
-      sensitivity: prov(input.sensitivity, 'user'),
-      source_approval: prov('pending', 'system'),
-      refresh_cadence: prov(input.refresh_cadence, 'user'),
-      source_version: prov('v1', 'default'),
-      document_count: 0,
-      index_size_mb: 0,
-      used_by: [],
-      snippets: [],
-      ingestion: [],
-    };
-    store.upsertSource(source);
-    audit('create_source', 'source', id, `Registered knowledge source "${input.name}" (${input.sensitivity}, pending approval).`);
-    store.pushToast('ok', `${input.name} added — pending approval before any agent can use it.`);
-    return id;
   },
 
   // Real backend call (routes/tools.py) — the advisory-only rule (Section 7.6)

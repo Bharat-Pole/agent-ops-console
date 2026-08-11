@@ -13,8 +13,12 @@
     "body": "You are the NOC Incident Summarizer. Summarize weekly incident reports for the NOC team and flag critical incidents.\n- Ground every statement in retrieved incident records; never invent incident IDs.\n- Cite sources as [source: kb://incident-db-prod-v3 · <DOC_ID>] per citation rules.\n- You are advisory-only: you may summarize, analyze, and recommend, but you may NOT send, update, close, or assign tickets.",
     "history": [
       { "version": "v1", "date": "2026-01-22", "note": "Initial system prompt." },
-      { "version": "v2", "date": "2026-03-04", "note": "Added explicit advisory-only boundary and citation format." }
-    ]
+      { "version": "v2", "date": "2026-03-04", "note": "Added explicit advisory-only boundary and citation format.", "body": "You are the NOC Incident Summarizer. Summarize weekly incident reports for the NOC team and flag critical incidents.\n- Ground every statement in retrieved incident records; never invent incident IDs.\n- Cite sources as [source: kb://incident-db-prod-v3 · <DOC_ID>] per citation rules.\n- You are advisory-only: you may summarize, analyze, and recommend, but you may NOT send, update, close, or assign tickets." }
+    ],
+    "domain": "network_ops",
+    "use_case": "Weekly NOC incident summary and critical-incident flagging",
+    "risk_tier": "low",
+    "agent_type": "minimal"
   },
   {
     "id": "hr-safety-v2.1",
@@ -30,8 +34,12 @@
     "body": "Safety constraints for the HR Policy Bot:\n- Answer only from approved HR policy documents.\n- Never disclose individual employee records, compensation, or PII.\n- For anything outside published policy, direct the employee to HR Business Partners.",
     "history": [
       { "version": "v2.0", "date": "2026-01-10", "note": "Safety pack v2." },
-      { "version": "v2.1", "date": "2026-02-02", "note": "Tightened PII non-disclosure." }
-    ]
+      { "version": "v2.1", "date": "2026-02-02", "note": "Tightened PII non-disclosure.", "body": "Safety constraints for the HR Policy Bot:\n- Answer only from approved HR policy documents.\n- Never disclose individual employee records, compensation, or PII.\n- For anything outside published policy, direct the employee to HR Business Partners." }
+    ],
+    "domain": "HR",
+    "use_case": "PII and compensation non-disclosure guardrail for HR policy Q&A",
+    "risk_tier": "medium",
+    "agent_type": "standardized"
   },
   {
     "id": "citation-standard-v1",
@@ -52,7 +60,11 @@
       "agt-regulatory-filing-coordinator-20260320-1829"
     ],
     "body": "Every grounded claim must carry a citation of the form [source: kb://<source-id> · <DOC_ID>].\nDo not answer from ungrounded knowledge when RAG is enabled. If no source clears the score_threshold, say so and abstain.",
-    "history": [{ "version": "v1", "date": "2026-01-05", "note": "Adopted platform-wide citation contract." }]
+    "history": [{ "version": "v1", "date": "2026-01-05", "note": "Adopted platform-wide citation contract.", "body": "Every grounded claim must carry a citation of the form [source: kb://<source-id> · <DOC_ID>].\nDo not answer from ungrounded knowledge when RAG is enabled. If no source clears the score_threshold, say so and abstain." }],
+    "domain": null,
+    "use_case": "Platform-wide grounding and citation contract for RAG-enabled agents",
+    "risk_tier": null,
+    "agent_type": null
   },
   {
     "id": "safety-standard-v1",
@@ -74,7 +86,11 @@
       "agt-regulatory-filing-coordinator-20260320-1829"
     ],
     "body": "Advisory base scope. The agent may read, summarize, draft, recommend, and validate.\nIt must refuse any request to send, approve, deploy, update, create, delete, close, assign, notify, post, or execute.\nWhen asked to perform a write action, respond with the advisory-only refusal and offer to draft the content instead.",
-    "history": [{ "version": "v1", "date": "2026-01-05", "note": "Platform advisory-scope safety pack." }]
+    "history": [{ "version": "v1", "date": "2026-01-05", "note": "Platform advisory-scope safety pack.", "body": "Advisory base scope. The agent may read, summarize, draft, recommend, and validate.\nIt must refuse any request to send, approve, deploy, update, create, delete, close, assign, notify, post, or execute.\nWhen asked to perform a write action, respond with the advisory-only refusal and offer to draft the content instead." }],
+    "domain": null,
+    "use_case": "Platform-wide advisory-only write-action refusal boundary",
+    "risk_tier": null,
+    "agent_type": null
   },
   {
     "id": "coordinator-system-v1",
@@ -88,7 +104,11 @@
     "owner": "platform@brightspeed.com",
     "used_by": ["agt-incident-response-coordinator-20260205-c3d9", "agt-regulatory-filing-coordinator-20260320-1829"],
     "body": "You are a Workflow Coordinator. Decompose the task, route to the appropriate sub-agent, and synthesize their outputs.\n- You own routing; sub-agents own their narrow task.\n- No sub-agent may hold write permissions or more than 3 tools.\n- Insert HITL gates where governance requires them; never bypass a gate.",
-    "history": [{ "version": "v1", "date": "2026-02-05", "note": "Coordinator base prompt." }]
+    "history": [{ "version": "v1", "date": "2026-02-05", "note": "Coordinator base prompt.", "body": "You are a Workflow Coordinator. Decompose the task, route to the appropriate sub-agent, and synthesize their outputs.\n- You own routing; sub-agents own their narrow task.\n- No sub-agent may hold write permissions or more than 3 tools.\n- Insert HITL gates where governance requires them; never bypass a gate." }],
+    "domain": null,
+    "use_case": "Multi-agent task decomposition and routing for coordinator archetypes",
+    "risk_tier": "high",
+    "agent_type": "advanced"
   },
   {
     "id": "rag-answer-template-v1",
@@ -107,7 +127,11 @@
       "agt-churn-insight-assistant-20260301-f6a2"
     ],
     "body": "## Answer\n{{synthesis}}\n\n## Sources\n{{citations}}\n\n_Advisory only — verify before acting._",
-    "history": [{ "version": "v1", "date": "2026-01-08", "note": "Standard grounded-answer format." }]
+    "history": [{ "version": "v1", "date": "2026-01-08", "note": "Standard grounded-answer format.", "body": "## Answer\n{{synthesis}}\n\n## Sources\n{{citations}}\n\n_Advisory only — verify before acting._" }],
+    "domain": null,
+    "use_case": "Standard grounded-answer response format for RAG agents",
+    "risk_tier": null,
+    "agent_type": null
   },
   {
     "id": "faq-template-v1",
@@ -121,7 +145,11 @@
     "owner": "fieldops@brightspeed.com",
     "used_by": ["agt-field-ops-faq-bot-20260112-e5b8"],
     "body": "**Q:** {{question}}\n**A:** {{answer}}\n\nWas this helpful? For field escalations, contact your regional lead.",
-    "history": [{ "version": "v1", "date": "2026-01-12", "note": "Field ops FAQ format." }]
+    "history": [{ "version": "v1", "date": "2026-01-12", "note": "Field ops FAQ format.", "body": "**Q:** {{question}}\n**A:** {{answer}}\n\nWas this helpful? For field escalations, contact your regional lead." }],
+    "domain": "field_ops",
+    "use_case": "FAQ response format for field technician Q&A",
+    "risk_tier": "low",
+    "agent_type": "minimal"
   },
   {
     "id": "legacy-summarizer-v0",
@@ -137,7 +165,11 @@
     "body": "[DEPRECATED] Summarize the input. Superseded by noc-summarizer@v2 which adds grounding + advisory boundary.",
     "history": [
       { "version": "v0", "date": "2025-11-01", "note": "Original pre-blueprint summarizer." },
-      { "version": "v0", "date": "2026-03-04", "note": "Deprecated in favor of noc-summarizer@v2." }
-    ]
+      { "version": "v0", "date": "2026-03-04", "note": "Deprecated in favor of noc-summarizer@v2.", "body": "[DEPRECATED] Summarize the input. Superseded by noc-summarizer@v2 which adds grounding + advisory boundary." }
+    ],
+    "domain": "network_ops",
+    "use_case": "Legacy incident summarizer, superseded",
+    "risk_tier": "low",
+    "agent_type": "minimal"
   }
 ]

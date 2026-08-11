@@ -111,6 +111,7 @@ export interface G_Data {
   chunk_overlap: Prov<number | null>;
   top_k: Prov<number | null>;
   score_threshold: Prov<number | null>;
+  rerank_enabled: Prov<boolean>;
   knowledge_source_refs: Prov<string[]>; // kb://<id>@<version>
   structured_grounding: Prov<boolean>;
 }

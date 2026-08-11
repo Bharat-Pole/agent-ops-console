@@ -11,13 +11,38 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from fastapi.responses import JSONResponse
 
 from app.env import env
-from app.domains.knowledge import knowledge_chunks_repo, knowledge_sources_repo, pipeline_runs_repo
+from app.domains.audit import audit_repo
+from app.domains.knowledge import (
+    knowledge_chunks_repo, knowledge_documents_repo, knowledge_sources_repo,
+    pipeline_runs_repo, retrieval_test_runs_repo,
+)
 from app.domains.knowledge.ingestion.pipeline import run_pipeline
 from app.domains.knowledge.embeddings_service import embed_text, is_embeddings_configured
 from app.domains.knowledge.source_suggestion_service import suggest_sources
 
 
 router = APIRouter(prefix="/v1/knowledge", tags=["knowledge"])
+
+# A confidential/restricted upload needs governance-officer sign-off before it's
+# ingested/queryable at all — mirrors GATED_SENSITIVITIES in
+# agents/knowledge_binding_service.py (that one gates *binding* a source to an
+# agent; this gates the upload itself, Blueprint 3.2 "Upload approved documents").
+GATED_SENSITIVITIES = ("confidential", "restricted")
+
+
+async def _start_or_gate_pipeline(
+    source_id: str, sensitivity: str, background_tasks: BackgroundTasks
+) -> dict[str, Any]:
+    """Every source-creation endpoint funnels through here: a public/internal
+    source starts ingesting immediately (today's behavior, unchanged); a
+    confidential/restricted one is held in 'pending' approval and never
+    touches the pipeline until a governance officer approves it."""
+    if sensitivity in GATED_SENSITIVITIES:
+        await knowledge_sources_repo.set_approval_status(source_id, "pending")
+        return {"run_id": None, "status": "pending_approval"}
+    run = await pipeline_runs_repo.create_run(source_id, trigger="manual")
+    background_tasks.add_task(run_pipeline, source_id, run["id"])
+    return {"run_id": run["id"], "status": "pending"}
 
 
 def _now_iso() -> str:
@@ -40,6 +65,7 @@ def _shared_meta_from_body(body: dict[str, Any]) -> dict[str, Any]:
         "owner": body.get("owner") or None,
         "tags": tags,
         "valid_until": body.get("valid_until") or None,
+        "category": body.get("category") or None,
         "chunk_size": int(body.get("chunk_size", 800)),
         "chunk_overlap": int(body.get("chunk_overlap", 100)),
         "embedding_provider": body.get("embedding_provider") or "openai",
@@ -87,6 +113,7 @@ async def upload_file(
     owner: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
     valid_until: Optional[str] = Form(None),
+    category: Optional[str] = Form(None),
     chunk_size: int = Form(800),
     chunk_overlap: int = Form(100),
     embedding_provider: str = Form("openai"),
@@ -114,6 +141,7 @@ async def upload_file(
             "owner": owner or None,
             "tags": tag_list,
             "valid_until": valid_until or None,
+            "category": category or None,
             "chunk_size": chunk_size,
             "chunk_overlap": chunk_overlap,
             "embedding_provider": embedding_provider,
@@ -121,13 +149,11 @@ async def upload_file(
         file_content=content,
     )
 
-    run = await pipeline_runs_repo.create_run(source_id, trigger="manual")
-    background_tasks.add_task(run_pipeline, source_id, run["id"])
-
+    gate = await _start_or_gate_pipeline(source_id, sensitivity, background_tasks)
 
     return JSONResponse(
         status_code=202,
-        content={"source": source, "run_id": run["id"], "status": "pending"},
+        content={"source": await knowledge_sources_repo.get_by_id(source_id), **gate},
     )
 
 
@@ -156,12 +182,11 @@ async def add_url_source(
         }
     )
 
-    run = await pipeline_runs_repo.create_run(source_id, trigger="manual")
-    background_tasks.add_task(run_pipeline, source_id, run["id"])
+    gate = await _start_or_gate_pipeline(source_id, sensitivity, background_tasks)
 
     return JSONResponse(
         status_code=202,
-        content={"source": source, "run_id": run["id"], "status": "pending"},
+        content={"source": await knowledge_sources_repo.get_by_id(source_id), **gate},
     )
 
 
@@ -205,12 +230,11 @@ async def add_database_source(
         file_content=config_bytes,
     )
 
-    run = await pipeline_runs_repo.create_run(source_id, trigger="manual")
-    background_tasks.add_task(run_pipeline, source_id, run["id"])
+    gate = await _start_or_gate_pipeline(source_id, sensitivity, background_tasks)
 
     return JSONResponse(
         status_code=202,
-        content={"source": source, "run_id": run["id"], "status": "pending"},
+        content={"source": await knowledge_sources_repo.get_by_id(source_id), **gate},
     )
 
 
@@ -245,12 +269,11 @@ async def add_text_source(
     )
     await knowledge_sources_repo.cache_raw_text(source_id, text)
 
-    run = await pipeline_runs_repo.create_run(source_id, trigger="manual")
-    background_tasks.add_task(run_pipeline, source_id, run["id"])
+    gate = await _start_or_gate_pipeline(source_id, sensitivity, background_tasks)
 
     return JSONResponse(
         status_code=202,
-        content={"source": source, "run_id": run["id"], "status": "pending"},
+        content={"source": await knowledge_sources_repo.get_by_id(source_id), **gate},
     )
 
 
@@ -285,12 +308,11 @@ async def _create_connector_source(
         file_content=config_bytes,
     )
 
-    run = await pipeline_runs_repo.create_run(source_id, trigger="manual")
-    background_tasks.add_task(run_pipeline, source_id, run["id"])
+    gate = await _start_or_gate_pipeline(source_id, sensitivity, background_tasks)
 
     return JSONResponse(
         status_code=202,
-        content={"source": source, "run_id": run["id"], "status": "pending"},
+        content={"source": await knowledge_sources_repo.get_by_id(source_id), **gate},
     )
 
 
@@ -462,8 +484,45 @@ async def update_source_metadata(source_id: str, body: dict[str, Any]) -> JSONRe
         raise HTTPException(status_code=404, detail="Source not found")
     meta = _shared_meta_from_body(body)
     await knowledge_sources_repo.update_metadata(
-        source_id, domain=meta["domain"], owner=meta["owner"], tags=meta["tags"], valid_until=meta["valid_until"],
+        source_id, domain=meta["domain"], owner=meta["owner"], tags=meta["tags"],
+        valid_until=meta["valid_until"], category=meta["category"],
     )
+    return JSONResponse(content={"source": await knowledge_sources_repo.get_by_id(source_id)})
+
+
+@router.post("/sources/{source_id}/approve-upload")
+async def approve_upload(source_id: str, background_tasks: BackgroundTasks, body: Optional[dict[str, Any]] = None) -> JSONResponse:
+    """Governance-officer sign-off on a confidential/restricted upload — only
+    after this does the source actually get ingested (see _start_or_gate_pipeline)."""
+    source = await knowledge_sources_repo.get_by_id(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if source["approval_status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Source approval_status is '{source['approval_status']}', not pending.")
+    await knowledge_sources_repo.set_approval_status(source_id, "approved")
+    run = await pipeline_runs_repo.create_run(source_id, trigger="manual")
+    background_tasks.add_task(run_pipeline, source_id, run["id"])
+    actor_persona = (body or {}).get("actorPersona") or "Governance Officer"
+    await audit_repo.insert({
+        "id": _new_id("aud"), "at": _now_iso(), "actor_persona": actor_persona, "action": "approve_upload",
+        "entity_type": "knowledge_source", "entity_id": source_id,
+        "detail": f"Approved {source['sensitivity']} upload {source['name']} — ingestion started.",
+    })
+    return JSONResponse(content={"source": await knowledge_sources_repo.get_by_id(source_id), "run_id": run["id"]})
+
+
+@router.post("/sources/{source_id}/reject-upload")
+async def reject_upload(source_id: str, body: Optional[dict[str, Any]] = None) -> JSONResponse:
+    source = await knowledge_sources_repo.get_by_id(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    await knowledge_sources_repo.set_approval_status(source_id, "rejected")
+    actor_persona = (body or {}).get("actorPersona") or "Governance Officer"
+    await audit_repo.insert({
+        "id": _new_id("aud"), "at": _now_iso(), "actor_persona": actor_persona, "action": "reject_upload",
+        "entity_type": "knowledge_source", "entity_id": source_id,
+        "detail": f"Rejected {source['sensitivity']} upload {source['name']} — never ingested.",
+    })
     return JSONResponse(content={"source": await knowledge_sources_repo.get_by_id(source_id)})
 
 
@@ -484,6 +543,64 @@ async def reactivate_source(source_id: str) -> JSONResponse:
         raise HTTPException(status_code=404, detail="Source not found")
     await knowledge_sources_repo.set_lifecycle(source_id, "active")
     return JSONResponse(content={"source": await knowledge_sources_repo.get_by_id(source_id)})
+
+
+# ── Documents (real per-item breakdown within a source) ───────────────────────
+
+@router.get("/sources/{source_id}/documents")
+async def list_documents(source_id: str) -> JSONResponse:
+    source = await knowledge_sources_repo.get_by_id(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    documents = await knowledge_documents_repo.get_by_source(source_id)
+    return JSONResponse(content={"documents": documents})
+
+
+@router.patch("/documents/{document_id}/metadata")
+async def update_document_metadata(document_id: str, body: dict[str, Any]) -> JSONResponse:
+    document = await knowledge_documents_repo.update_metadata(
+        document_id,
+        domain=body.get("domain") or None,
+        owner=body.get("owner") or None,
+        sensitivity=body.get("sensitivity") or None,
+        valid_until=body.get("valid_until") or None,
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return JSONResponse(content={"document": document})
+
+
+@router.post("/documents/{document_id}/retire")
+async def retire_document(document_id: str) -> JSONResponse:
+    document = await knowledge_documents_repo.set_lifecycle(document_id, "retired")
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return JSONResponse(content={"document": document})
+
+
+@router.post("/documents/{document_id}/reactivate")
+async def reactivate_document(document_id: str) -> JSONResponse:
+    document = await knowledge_documents_repo.set_lifecycle(document_id, "active")
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return JSONResponse(content={"document": document})
+
+
+# ── KB-wide usage map (Blueprint 3.2 "Source usage map") ───────────────────────
+
+@router.get("/usage-map")
+async def get_usage_map() -> JSONResponse:
+    """Every real agent binding across every source, in one call — the per-source
+    `used_by` list already backs this per-row; this aggregates it KB-wide so the
+    UI doesn't have to fetch N sources to answer 'what's bound to what'."""
+    sources = await knowledge_sources_repo.get_all()
+    bindings = [
+        {"source_id": s["id"], "source_name": s["name"], "agent_id": aid}
+        for s in sources
+        for aid in s["used_by"]
+    ]
+    unused = [s["id"] for s in sources if not s["used_by"]]
+    return JSONResponse(content={"bindings": bindings, "unused_source_ids": unused})
 
 
 # ── Config / Health ───────────────────────────────────────────────────────────
@@ -689,6 +806,14 @@ async def test_retrieval(body: dict[str, Any]) -> JSONResponse:
 
     hit_source_ids = list({r["source_id"] for r in results})
     await knowledge_sources_repo.touch_last_queried(hit_source_ids)
+    await knowledge_documents_repo.touch_last_queried(list({r["doc_id"] for r in results}))
+
+    await retrieval_test_runs_repo.insert({
+        "id": _new_id("rtr"), "query": query, "source_ids": source_ids, "top_k": top_k,
+        "score_threshold": score_threshold, "rerank_enabled": rerank_enabled,
+        "result_count": len(results), "passed_count": sum(1 for r in results if r["passed"]),
+        "latency_ms": latency_ms, "estimated_cost_usd": estimated_cost_usd,
+    })
 
     return JSONResponse(content={
         "results": results,
@@ -699,5 +824,11 @@ async def test_retrieval(body: dict[str, Any]) -> JSONResponse:
         "estimated_cost_usd": estimated_cost_usd,
         "embedding_provider": provider,
     })
+
+
+@router.get("/retrieval-test-runs")
+async def list_retrieval_test_runs(limit: int = 20) -> JSONResponse:
+    runs = await retrieval_test_runs_repo.get_recent(min(limit, 100))
+    return JSONResponse(content={"runs": runs})
 
 

@@ -1,6 +1,6 @@
-from typing import Any
+from typing import Any, Optional
 
-from app.domains.knowledge import knowledge_chunks_repo, knowledge_sources_repo
+from app.domains.knowledge import knowledge_chunks_repo, knowledge_documents_repo, knowledge_sources_repo
 from app.domains.knowledge.embeddings_service import embed_text, is_embeddings_configured
 from app.domains.knowledge.reranker_service import rerank_chunks
 
@@ -15,6 +15,7 @@ async def retrieve_for_sources(
     top_k: int,
     score_threshold: float,
     rerank_enabled: bool = True,
+    document_domain: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """
     Provider-aware retrieval against an explicit set of source_ids — always resolves
@@ -38,7 +39,9 @@ async def retrieve_for_sources(
 
     fetch_k = max(top_k * 4, 20) if rerank_enabled else top_k
     query_embedding = await embed_text(query, provider=provider, is_query=True)
-    rows = await knowledge_chunks_repo.search_by_source_ids(query_embedding, source_ids, fetch_k, provider=provider)
+    rows = await knowledge_chunks_repo.search_by_source_ids(
+        query_embedding, source_ids, fetch_k, provider=provider, document_domain=document_domain
+    )
 
     candidates = [
         {
@@ -54,10 +57,12 @@ async def retrieve_for_sources(
     ]
 
     if rerank_enabled:
-        return rerank_chunks(query, candidates, top_k=top_k, score_threshold=score_threshold)
+        results = rerank_chunks(query, candidates, top_k=top_k, score_threshold=score_threshold)
     else:
-        filtered = [c for c in candidates if c["passed"]]
-        return filtered[:top_k]
+        results = [c for c in candidates if c["passed"]][:top_k]
+
+    await knowledge_documents_repo.touch_last_queried(list({r["doc_id"] for r in results}))
+    return results
 
 
 # Deprecated — kept as a thin wrapper for one release in case anything else still

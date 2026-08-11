@@ -174,6 +174,7 @@ export function buildConfig(inp: ConfigInput): AgentConfig {
       // short snippets runs ~0.6+ for close paraphrases, ~0.1-0.2 for unrelated
       // text — 0.35 cleanly separates the two (see Phase 3 RAG plan).
       score_threshold: rag ? g<number | null>(inp.score_threshold ?? 0.35) : d<number | null>(null),
+      rerank_enabled: rag ? s(true) : d(false),
       knowledge_source_refs: inp.knowledge_source_refs?.length ? u(inp.knowledge_source_refs) : d<string[]>([]),
       structured_grounding: s(isAdv),
     },

@@ -1,8 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, ChevronDown, ChevronUp, Zap, Quote } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Zap, Quote, History } from 'lucide-react';
 import type { RealKnowledgeSource, RetrievalResult, RetrievalResponse, KnowledgeConfig } from '@/types';
 import { Button, Badge } from '@/components/primitives';
 import { cn } from '@/utils/cn';
+
+interface RetrievalTestRun {
+  id: string;
+  query: string;
+  source_ids: string[];
+  top_k: number;
+  score_threshold: number;
+  rerank_enabled: boolean;
+  result_count: number;
+  passed_count: number;
+  latency_ms: number;
+  estimated_cost_usd: number | null;
+  created_at: string;
+}
 
 interface Props {
   sources: RealKnowledgeSource[];
@@ -96,10 +110,19 @@ export function RetrievalTestPanel({ sources }: Props) {
   const [domainFilter, setDomainFilter] = useState('all');
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [sensitivityFilter, setSensitivityFilter] = useState('all');
+  const [recentRuns, setRecentRuns] = useState<RetrievalTestRun[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     fetch('/v1/knowledge/config').then((r) => r.json()).then(setConfig).catch(() => {});
   }, []);
+
+  const loadRecentRuns = () => {
+    fetch('/v1/knowledge/retrieval-test-runs')
+      .then((r) => r.json())
+      .then((d) => setRecentRuns(d.runs ?? []))
+      .catch(() => {});
+  };
 
   const domains = useMemo(() => Array.from(new Set(readySources.map((s) => s.domain).filter((d): d is string => !!d))).sort(), [readySources]);
   const owners = useMemo(() => Array.from(new Set(readySources.map((s) => s.owner).filter((o): o is string => !!o))).sort(), [readySources]);
@@ -149,6 +172,7 @@ export function RetrievalTestPanel({ sources }: Props) {
       }
       const data: RetrievalResponse = await res.json();
       setResponse(data);
+      loadRecentRuns();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Search failed');
     } finally {
@@ -311,6 +335,31 @@ export function RetrievalTestPanel({ sources }: Props) {
         {error && (
           <div className="rounded-md border border-err/30 bg-err/10 px-3 py-2 text-[11px] text-err">{error}</div>
         )}
+
+        {/* Recent tests — real, persisted (Blueprint 3.3 "retrieval test results") */}
+        <div>
+          <button
+            className="flex items-center gap-1 text-[11px] font-medium text-text-low hover:text-text-mid"
+            onClick={() => (showHistory ? setShowHistory(false) : (loadRecentRuns(), setShowHistory(true)))}
+          >
+            <History size={11} /> Recent tests {showHistory ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+          </button>
+          {showHistory && (
+            <div className="mt-1.5 space-y-1 max-h-[160px] overflow-y-auto">
+              {recentRuns.length === 0 ? (
+                <div className="text-[11px] text-text-low italic">No test runs yet.</div>
+              ) : recentRuns.map((r) => (
+                <div key={r.id} className="rounded-md border border-border bg-raised px-2 py-1.5 text-[11px]">
+                  <div className="truncate text-text-hi" title={r.query}>{r.query}</div>
+                  <div className="mt-0.5 flex justify-between text-[10px] text-text-low">
+                    <span>{r.passed_count}/{r.result_count} passed</span>
+                    <span>{r.latency_ms.toFixed(0)}ms</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Right panel — results */}

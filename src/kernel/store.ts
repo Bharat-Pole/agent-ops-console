@@ -123,6 +123,7 @@ export interface WorkspaceState extends WorkspaceData {
 
   patchConnector: (id: string, patch: Partial<McpConnector>) => void;
   upsertPrompt: (p: PromptAsset) => void;
+  removePrompt: (id: string) => void;
   addTool: (tool: ToolAsset) => void;
   patchTool: (id: string, patch: Partial<ToolAsset>) => void;
   addModel: (model: ModelAsset) => void;
@@ -315,6 +316,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         prompts: exists ? s.prompts.map((x) => (x.id === p.id ? p : x)) : [...s.prompts, p],
       };
     }),
+  removePrompt: (id) => set((s) => ({ prompts: s.prompts.filter((p) => p.id !== id) })),
   addTool: (tool) => set((s) => ({ tools: [...s.tools, tool] })),
   patchTool: (id, patch) =>
     set((s) => ({ tools: s.tools.map((t) => (t.id === id ? { ...t, ...patch } : t)) })),

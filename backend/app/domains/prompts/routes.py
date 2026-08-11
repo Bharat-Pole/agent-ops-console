@@ -14,6 +14,12 @@ async def list_prompts() -> JSONResponse:
     return JSONResponse(content={"prompts": await prompts_repo.get_all()})
 
 
+@router.get("/v1/prompts/approved-pack")
+async def approved_pack_route(domain: str | None = None, agent_type: str | None = None) -> JSONResponse:
+    pack = await prompts_service.export_approved_pack(domain, agent_type)
+    return JSONResponse(content=pack)
+
+
 @router.post("/v1/prompts")
 async def create(body: dict[str, Any]) -> JSONResponse:
     prompt = await prompts_service.create_prompt(body)
@@ -52,6 +58,41 @@ async def new_version_route(prompt_id: str) -> JSONResponse:
     if prompt is None:
         return JSONResponse(status_code=404, content={"message": "Prompt not found."})
     return JSONResponse(content={"prompt": prompt})
+
+
+@router.get("/v1/prompts/{prompt_id}/compare")
+async def compare_route(prompt_id: str, a: str, b: str) -> JSONResponse:
+    try:
+        result = await prompts_service.compare_versions(prompt_id, a, b)
+    except ValueError as err:
+        return JSONResponse(status_code=404, content={"message": str(err)})
+    return JSONResponse(content=result)
+
+
+@router.post("/v1/prompts/{prompt_id}/rollback")
+async def rollback_route(prompt_id: str, body: dict[str, Any]) -> JSONResponse:
+    target_version = body.get("version")
+    actor_persona = body.get("actorPersona") or "Governance Officer"
+    if not target_version:
+        return JSONResponse(status_code=400, content={"message": "version is required."})
+    try:
+        result = await prompts_service.rollback_to(prompt_id, target_version, actor_persona)
+    except ValueError as err:
+        return JSONResponse(status_code=400, content={"message": str(err)})
+    if result is None:
+        return JSONResponse(status_code=404, content={"message": "Prompt not found."})
+    return JSONResponse(content=result)
+
+
+@router.delete("/v1/prompts/{prompt_id}")
+async def delete_route(prompt_id: str, actorPersona: str = "Governance Officer") -> JSONResponse:
+    try:
+        result = await prompts_service.delete_prompt(prompt_id, actorPersona)
+    except ValueError as err:
+        return JSONResponse(status_code=400, content={"message": str(err)})
+    if result is None:
+        return JSONResponse(status_code=404, content={"message": "Prompt not found."})
+    return JSONResponse(content=result)
 
 
 @router.post("/v1/prompts/{prompt_id}/decide")

@@ -120,6 +120,7 @@ async def search_by_source_ids(
     source_ids: list[str],
     limit: int,
     provider: str = "openai",
+    document_domain: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """
     Cosine similarity search scoped to a set of source IDs.
@@ -129,19 +130,27 @@ async def search_by_source_ids(
     `provider` picks which vector column to search — callers must ensure all
     `source_ids` were embedded with this same provider (see /retrieve route),
     since a 1536-dim OpenAI vector and a 384-dim BGE vector are not comparable.
+
+    `document_domain` — real per-document metadata filter (Blueprint 3.3
+    "configure metadata filters"): when given, only searches chunks whose
+    knowledge_documents row is tagged with this exact domain.
     """
     vector_col = "embedding_local" if provider == "local_bge_small" else "embedding"
     pool = get_pool()
+    domain_clause = "AND doc_id IN (SELECT id FROM knowledge_documents WHERE domain = $4)" if document_domain else ""
+    params: list[Any] = [to_vector_literal(query_embedding), source_ids, limit]
+    if document_domain:
+        params.append(document_domain)
     rows = await pool.fetch(
         f"""SELECT doc_id, source_id, text, chunk_index, metadata,
                   {vector_col} <=> $1::vector AS distance
            FROM knowledge_chunks
            WHERE source_id = ANY($2::text[]) AND {vector_col} IS NOT NULL
+             AND doc_id NOT IN (SELECT id FROM knowledge_documents WHERE lifecycle = 'retired')
+             {domain_clause}
            ORDER BY {vector_col} <=> $1::vector
            LIMIT $3""",
-        to_vector_literal(query_embedding),
-        source_ids,
-        limit,
+        *params,
     )
     return [dict(r) for r in rows]
 

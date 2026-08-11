@@ -1,7 +1,7 @@
 // Section 6 — service façade. Function names mirror the Blueprint's REST API so
 // the app could later be rewired to a real backend. NO UI component mutates the
 // store directly; everything goes through here. Endpoint-shaped methods
-// (synthesize/validate/register/provision/approve/runEvaluation/triggerPipeline)
+// (synthesize/validate/register/provision/approve/runEvaluation)
 // are added in their respective milestones.
 
 import { ws } from './store';
@@ -73,7 +73,6 @@ export const api = {
   provision: services.provision,
   runEvaluation: services.runEvaluation,
   regenerateEvalPack: services.regenerateEvalPack,
-  triggerPipeline: services.triggerPipeline,
   recertify: services.recertify,
   setLifecycle: services.setLifecycle,
   bindTool: services.bindTool,
@@ -92,7 +91,10 @@ export const api = {
   updatePromptFields: services.updatePromptFields,
   decidePrompt: services.decidePrompt,
   deprecatePrompt: services.deprecatePrompt,
-  addKnowledgeSource: services.addKnowledgeSource,
+  deletePrompt: services.deletePrompt,
+  comparePromptVersions: services.comparePromptVersions,
+  rollbackPrompt: services.rollbackPrompt,
+  exportApprovedPromptPack: services.exportApprovedPromptPack,
   registerTool: services.registerTool,
   registerModel: services.registerModel,
   updateModel: services.updateModel,

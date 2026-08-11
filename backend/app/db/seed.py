@@ -98,5 +98,55 @@ async def seed_if_empty() -> None:
         for prompt in seed_prompts:
             await prompts_repo.insert(prompt)
         print(f"[seed] inserted {len(seed_prompts)} prompts")
+    else:
+        # Backfill body snapshots + curated tags onto prompt rows created
+        # before version-snapshotting and tagging existed — idempotent, only
+        # touches rows that are still missing this data, never overwrites a
+        # real edit made after these fields shipped.
+        with open(_SEED_PROMPTS_PATH, encoding="utf-8") as f:
+            seed_by_id = {p["id"]: p for p in json.load(f)}
+        existing_prompts = await prompts_repo.get_all()
+        snapshotted, tagged = 0, 0
+        for prompt in existing_prompts:
+            history = prompt["history"]
+            if history and "body" not in history[-1]:
+                history = [*history[:-1], {**history[-1], "body": prompt["body"]}]
+                await prompts_repo.update(prompt["id"], {"history": history})
+                snapshotted += 1
+            seed = seed_by_id.get(prompt["id"])
+            if seed and not any([prompt["domain"], prompt["use_case"], prompt["risk_tier"], prompt["agent_type"]]):
+                await prompts_repo.update(
+                    prompt["id"],
+                    {
+                        "domain": seed.get("domain"),
+                        "use_case": seed.get("use_case"),
+                        "risk_tier": seed.get("risk_tier"),
+                        "agent_type": seed.get("agent_type"),
+                    },
+                )
+                tagged += 1
+        if snapshotted:
+            print(f"[seed] backfilled body snapshot for {snapshotted} prompt(s)")
+        if tagged:
+            print(f"[seed] backfilled curated tags for {tagged} prompt(s)")
+
+    # Backfill config.data.rerank_enabled onto agents created before this field
+    # existed — real chat tool-use always reranked regardless, so `True`
+    # preserves each agent's actual current behavior rather than silently
+    # changing it. Idempotent: only touches agents still missing the key.
+    def _add_rerank_field(a):
+        a["config"]["data"]["rerank_enabled"] = {
+            "value": True, "value_source": "system", "verified_flag": True,
+            "confidence": "high", "gap_note": None,
+        }
+        return a
+
+    agents_missing_rerank = [
+        a for a in await agents_repo.get_all() if "rerank_enabled" not in a["config"]["data"]
+    ]
+    for agent in agents_missing_rerank:
+        await agents_repo.patch(agents_repo.agent_id(agent), _add_rerank_field)
+    if agents_missing_rerank:
+        print(f"[seed] backfilled rerank_enabled for {len(agents_missing_rerank)} agent(s)")
 
     await seed_embeddings_if_empty()

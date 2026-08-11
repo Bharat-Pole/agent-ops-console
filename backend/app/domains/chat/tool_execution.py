@@ -31,6 +31,43 @@ def parse_source_id(ref: str) -> str:
     return ref.replace("kb://", "", 1).split("@")[0]
 
 
+async def get_citation_format(agent: dict[str, Any]) -> Optional[str]:
+    """Real, mechanically-applied citation format from the agent's own bound
+    citation_rules prompt (Blueprint 3.3 "configure citation rules") — looked
+    up server-side from the backend's own prompts table, independent of
+    whatever resolved body text the client forwarded. None = use the
+    platform default bracket format."""
+    ref = agent["config"]["prompt"].get("citation_rules", {}).get("value")
+    if not ref or not ref.startswith("prompts://"):
+        return None
+    prompt_id = ref.replace("prompts://", "", 1).split("@")[0]
+    from app.domains.prompts import prompts_repo
+    prompt = await prompts_repo.get_by_id(prompt_id)
+    return prompt.get("citation_format") if prompt else None
+
+
+def render_citation(citation_format: Optional[str], source_name: str, source_id: str, doc_id: str, doc_title: str) -> str:
+    default = f"[source: kb://{source_id} · {doc_id}]"
+    if not citation_format:
+        return default
+    try:
+        return citation_format.format(
+            source_name=source_name, source_id=source_id, doc_id=doc_id, doc_title=doc_title,
+        )
+    except (KeyError, IndexError, ValueError):
+        # Malformed template (typo'd placeholder, stray brace) — fail safe to
+        # the platform default rather than break every citation in the chat.
+        return default
+
+
+def _estimate_tokens(text: str) -> int:
+    try:
+        import tiktoken
+        return len(tiktoken.get_encoding("cl100k_base").encode(text))
+    except ImportError:
+        return max(1, len(text) // 4)  # rough fallback, matches OpenAI's ~4 chars/token rule of thumb
+
+
 # Builds the ONLY tool catalog this call will ever offer the model — generated
 # entirely server-side from the agent's own bound refs, never from client input.
 # This is what keeps the advisory-only invariant intact under tool-use: the
@@ -67,6 +104,14 @@ def _search_knowledge_spec(vector_sources: list[dict[str, Any]]) -> tuple[str, s
         "properties": {
             "query": {"type": "string", "description": "The search query."},
             "source_id": {"type": "string", "enum": [s["id"] for s in vector_sources]},
+            "domain": {
+                "type": "string",
+                "description": (
+                    "Optional — if the question is clearly scoped to one governance "
+                    "domain (e.g. 'network_ops', 'HR'), restrict the search to "
+                    "documents tagged with that domain. Omit otherwise."
+                ),
+            },
         },
         "required": ["query", "source_id"],
     }
@@ -118,7 +163,8 @@ def openai_tool_defs(vector_sources: list[dict[str, Any]], sql_sources: list[dic
 
 
 async def execute_tool(
-    name: str, input_: dict[str, Any], source_kind_by_id: dict[str, str], top_k: int, score_threshold: float
+    name: str, input_: dict[str, Any], source_kind_by_id: dict[str, str], top_k: int, score_threshold: float,
+    rerank_enabled: bool = True, agent_id: Optional[str] = None, citation_format: Optional[str] = None,
 ) -> tuple[str, list[dict[str, Any]], list[str]]:
     """Returns (tool_result_content, retrieval_entries, citations). Re-validates
     source_id server-side against the agent's actual bound set — the model's
@@ -129,14 +175,46 @@ async def execute_tool(
         return f"Error: source_id '{source_id}' is not bound to this agent.", [], []
 
     if name == "search_knowledge" and kind == "vector":
+        import time
         from app.domains.knowledge import retrieval_service as retrieval
+        from app.domains.monitoring import service as monitoring
+
+        query = input_.get("query", "")
+        started = time.perf_counter()
+        error: Optional[str] = None
+        results: list[dict[str, Any]] = []
         try:
             results = await retrieval.retrieve_for_sources(
-                [source_id], input_.get("query", ""), top_k, score_threshold
+                [source_id], query, top_k, score_threshold,
+                rerank_enabled=rerank_enabled, document_domain=input_.get("domain") or None,
             )
         except ValueError as e:
-            return f"Error: {e}", [], []
-        citations = [f"[source: kb://{r['source_id']} · {r['doc_id']}]" for r in results if r["passed"]]
+            error = str(e)
+
+        if agent_id:
+            latency_ms = (time.perf_counter() - started) * 1000
+            providers = await knowledge_sources_repo.get_embedding_providers([source_id])
+            provider = providers.get(source_id, "openai")
+            model = "text-embedding-3-small" if provider == "openai" else "local_bge_small"
+            await monitoring.record_event(
+                agent_id, "retrieval", "error" if error else "ok", latency_ms,
+                tokens_in=_estimate_tokens(query), model=model, error_msg=error,
+            )
+
+        if error:
+            return f"Error: {error}", [], []
+
+        citations: list[str] = []
+        if any(r["passed"] for r in results):
+            from app.domains.knowledge import knowledge_documents_repo
+            source = await knowledge_sources_repo.get_by_id(source_id)
+            source_name = source["name"] if source else source_id
+            docs_by_id = {d["id"]: d for d in await knowledge_documents_repo.get_by_source(source_id)}
+            for r in results:
+                if not r["passed"]:
+                    continue
+                doc_title = docs_by_id.get(r["doc_id"], {}).get("title", r["doc_id"])
+                citations.append(render_citation(citation_format, source_name, r["source_id"], r["doc_id"], doc_title))
         return json.dumps({"source_id": source_id, "results": results}), results, citations
 
     if name == "query_structured_data" and kind == "sql":

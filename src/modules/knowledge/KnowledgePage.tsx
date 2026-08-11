@@ -2,15 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/shell/PageHeader';
 import {
-  Tabs, Button, Badge, EmptyState, Drawer, DataTable,
+  Tabs, Button, Badge, EmptyState, Drawer, DataTable, Modal,
   type TabItem, type Column, type FilterDef,
 } from '@/components/primitives';
 import { useWorkspace } from '@/kernel/store';
 import { agentId } from '@/types';
-import type { RealKnowledgeSource, RealPipelineRun, KnowledgeChunk, KnowledgeConfig } from '@/types';
+import type { RealKnowledgeSource, RealPipelineRun, KnowledgeChunk, KnowledgeConfig, KnowledgeDocument } from '@/types';
 import {
   Plus, Database, Loader2, CheckCircle2, XCircle, Clock,
-  RefreshCw, Trash2, ChevronDown, ChevronUp, AlertCircle, Archive, ArchiveRestore,
+  RefreshCw, Trash2, ChevronDown, ChevronUp, AlertCircle, Archive, ArchiveRestore, FileText,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { AddSourceModal } from './components/AddSourceModal';
@@ -46,7 +46,7 @@ function fmtRelative(iso: string): string {
   return months === 1 ? '1 month ago' : `${months} months ago`;
 }
 
-function UsageLabel({ source }: { source: RealKnowledgeSource }) {
+function UsageLabel({ source }: { source: { last_queried_at: string | null; created_at: string } }) {
   if (source.last_queried_at) {
     return <span className="text-text-mid">Queried {fmtRelative(source.last_queried_at)}</span>;
   }
@@ -56,7 +56,7 @@ function UsageLabel({ source }: { source: RealKnowledgeSource }) {
     : <span className="text-text-low">Not queried yet</span>;
 }
 
-function FreshnessNote({ source }: { source: RealKnowledgeSource }) {
+function FreshnessNote({ source }: { source: { valid_until: string | null } }) {
   if (!source.valid_until) return null;
   const isStale = new Date(source.valid_until).getTime() < Date.now();
   return isStale
@@ -101,6 +101,77 @@ function TypeIcon({ type }: { type: RealKnowledgeSource['source_type'] }) {
   return <span className="text-[14px]">{icons[type] ?? '📦'}</span>;
 }
 
+// ── Documents section (real per-item breakdown within a source) ──────────────
+
+function DocumentsSection({ sourceId, canDecide }: { sourceId: string; canDecide: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [docs, setDocs] = useState<KnowledgeDocument[]>([]);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/v1/knowledge/sources/${sourceId}/documents`);
+      const d = await res.json();
+      setDocs(d.documents ?? []);
+    } finally {
+      setLoading(false);
+      setOpen(true);
+    }
+  }
+
+  async function toggleLifecycle(doc: KnowledgeDocument) {
+    const action = doc.lifecycle === 'active' ? 'retire' : 'reactivate';
+    const res = await fetch(`/v1/knowledge/documents/${encodeURIComponent(doc.id)}/${action}`, { method: 'POST' });
+    if (!res.ok) return;
+    const d = await res.json();
+    setDocs((prev) => prev.map((x) => (x.id === doc.id ? d.document : x)));
+  }
+
+  return (
+    <div>
+      <button
+        className="mb-1.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-text-low hover:text-text-mid"
+        onClick={() => (open ? setOpen(false) : load())}
+      >
+        {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        Documents {docs.length > 0 && `(${docs.length})`}
+      </button>
+      {loading && <div className="text-[11px] text-text-low">Loading…</div>}
+      {open && !loading && (
+        <div className="space-y-1.5 max-h-[280px] overflow-y-auto">
+          {docs.map((doc) => (
+            <div key={doc.id} className="rounded-md border border-border bg-surface px-2.5 py-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <FileText size={11} className="shrink-0 text-text-low" />
+                  <span className="truncate text-[12px] font-medium text-text-hi">{doc.title}</span>
+                  {doc.lifecycle === 'retired' && <Badge tone="neutral">retired</Badge>}
+                </span>
+                {canDecide && (
+                  <button
+                    className="shrink-0 text-[10px] text-text-low hover:text-text-hi underline"
+                    onClick={() => toggleLifecycle(doc)}
+                  >
+                    {doc.lifecycle === 'active' ? 'Retire' : 'Reactivate'}
+                  </button>
+                )}
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-text-low">
+                <SensitivityBadge s={doc.sensitivity} />
+                {doc.domain && <span>{doc.domain}</span>}
+                {doc.owner && <span>· {doc.owner}</span>}
+                <UsageLabel source={doc} />
+                <FreshnessNote source={doc} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // ── Source Drawer ─────────────────────────────────────────────────────────────
 
@@ -111,6 +182,9 @@ function SourceDrawer({
   onDelete,
   onRetire,
   onReactivate,
+  onApproveUpload,
+  onRejectUpload,
+  canDecide,
   activeRunId,
 }: {
   source: RealKnowledgeSource | null;
@@ -119,6 +193,9 @@ function SourceDrawer({
   onDelete: (id: string) => void;
   onRetire: (id: string) => void;
   onReactivate: (id: string) => void;
+  onApproveUpload: (id: string) => void;
+  onRejectUpload: (id: string) => void;
+  canDecide: boolean;
   activeRunId?: string;
 }) {
   const [chunks, setChunks] = useState<KnowledgeChunk[]>([]);
@@ -162,12 +239,34 @@ function SourceDrawer({
       subtitle={`${source.chunk_count} chunks · ${fmtBytes(source.size_bytes)} · ${source.source_type}`}
     >
       <div className="space-y-5">
+        {source.approval_status === 'pending' && (
+          <div className="rounded-md border border-warn/30 bg-warn/10 p-2.5 space-y-2">
+            <p className="text-[12px] text-warn">
+              This {source.sensitivity} upload is pending governance-officer approval — it will not be ingested until approved.
+            </p>
+            {canDecide ? (
+              <div className="flex gap-2">
+                <Button size="sm" className="flex-1" onClick={() => onApproveUpload(source.id)}>Approve</Button>
+                <Button variant="ghost" size="sm" className="flex-1" onClick={() => onRejectUpload(source.id)}>Reject</Button>
+              </div>
+            ) : (
+              <p className="text-[11px] text-text-low">Governance Officer only.</p>
+            )}
+          </div>
+        )}
+        {source.approval_status === 'rejected' && (
+          <div className="rounded-md border border-err/30 bg-err/10 p-2.5 text-[12px] text-err">
+            This upload was rejected — it was never ingested.
+          </div>
+        )}
         {/* Meta */}
         <div className="rounded-lg border border-border bg-raised px-3 py-2 space-y-1.5 text-[12px]">
           {[
             { label: 'Status', value: <StatusBadge status={source.status} /> },
+            { label: 'Approval', value: <Badge tone={source.approval_status === 'approved' ? 'ok' : source.approval_status === 'rejected' ? 'err' : 'warn'}>{source.approval_status}</Badge> },
             { label: 'Lifecycle', value: <Badge tone={source.lifecycle === 'retired' ? 'neutral' : 'ok'}>{source.lifecycle}</Badge> },
             { label: 'Sensitivity', value: <SensitivityBadge s={source.sensitivity} /> },
+            { label: 'Category', value: source.category ?? <span className="text-text-low">—</span> },
             { label: 'Domain', value: source.domain ?? <span className="text-text-low">—</span> },
             { label: 'Owner', value: source.owner ?? <span className="text-text-low">—</span> },
             { label: 'Tags', value: source.tags.length ? source.tags.join(', ') : <span className="text-text-low">—</span> },
@@ -219,6 +318,8 @@ function SourceDrawer({
               </div>
             ))}
         </div>
+
+        <DocumentsSection sourceId={source.id} canDecide={canDecide} />
 
         {/* Active pipeline run */}
         {activeRunId && (
@@ -320,14 +421,84 @@ function SourceDrawer({
   );
 }
 
+// ── Usage Map (Blueprint 3.2 "Source usage map") ─────────────────────────────
+
+function UsageMapModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const navigate = useNavigate();
+  const agents = useWorkspace((s) => s.agents);
+  const sources = useWorkspace((s) => s.knowledgeSources);
+  const [loading, setLoading] = useState(false);
+  const [bindings, setBindings] = useState<{ source_id: string; source_name: string; agent_id: string }[]>([]);
+  const [unusedIds, setUnusedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    fetch('/v1/knowledge/usage-map')
+      .then((r) => r.json())
+      .then((d) => { setBindings(d.bindings ?? []); setUnusedIds(d.unused_source_ids ?? []); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [open]);
+
+  const agentName = (id: string) => agents.find((a) => agentId(a) === id)?.config.identity.agent_name.value ?? id;
+  const sourceName = (id: string) => sources.find((s) => s.id === id)?.name ?? id;
+
+  return (
+    <Modal open={open} onClose={onClose} title="Source Usage Map" width="max-w-lg" footer={<Button variant="ghost" onClick={onClose}>Close</Button>}>
+      {loading ? (
+        <div className="flex items-center gap-2 py-6 justify-center text-[12px] text-text-low"><Loader2 size={14} className="animate-spin" /> Loading…</div>
+      ) : (
+        <div className="space-y-4">
+          <div>
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-low">
+              Bound ({bindings.length})
+            </div>
+            {bindings.length === 0 ? (
+              <p className="text-[12px] text-text-low">No sources are bound to any agent yet.</p>
+            ) : (
+              <div className="space-y-1 max-h-[240px] overflow-y-auto">
+                {bindings.map((b, i) => (
+                  <div key={i} className="flex items-center justify-between rounded-md border border-border px-2.5 py-1.5 text-[12px]">
+                    <button className="text-accent hover:underline truncate" onClick={() => { navigate(`/agents/${b.agent_id}`); onClose(); }}>
+                      {agentName(b.agent_id)}
+                    </button>
+                    <span className="text-text-low">←</span>
+                    <span className="truncate text-text-mid">{sourceName(b.source_id)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-low">
+              Unused ({unusedIds.length})
+            </div>
+            {unusedIds.length === 0 ? (
+              <p className="text-[12px] text-text-low">Every source is bound to at least one agent.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {unusedIds.map((id) => <Badge key={id} tone="warn">{sourceName(id)}</Badge>)}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 // ── Sources Tab ───────────────────────────────────────────────────────────────
 
 function SourcesTab() {
   const sources = useWorkspace((s) => s.knowledgeSources);
   const upsert = useWorkspace((s) => s.upsertRealSource);
   const remove = useWorkspace((s) => s.removeRealSource);
+  const persona = useWorkspace((s) => s.ui.persona);
+  const canDecide = persona === 'governance_officer';
 
   const [showAdd, setShowAdd] = useState(false);
+  const [showUsageMap, setShowUsageMap] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Derive from the live store (not a snapshot) so retire/reactivate/re-index reflect
   // immediately in an already-open drawer instead of showing stale data.
@@ -352,8 +523,8 @@ function SourcesTab() {
     return () => clearInterval(t);
   }, [sources, refreshSources]);
 
-  function handleCreated(sourceId: string, runId: string) {
-    setActiveRunIds((prev) => ({ ...prev, [sourceId]: runId }));
+  function handleCreated(sourceId: string, runId: string | null) {
+    if (runId) setActiveRunIds((prev) => ({ ...prev, [sourceId]: runId }));
     refreshSources();
   }
 
@@ -392,10 +563,36 @@ function SourcesTab() {
     } catch { /* */ }
   }
 
+  async function handleApproveUpload(id: string) {
+    try {
+      const res = await fetch(`/v1/knowledge/sources/${id}/approve-upload`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorPersona: 'Governance Officer' }),
+      });
+      if (!res.ok) return;
+      const d = await res.json();
+      upsert(d.source);
+    } catch { /* */ }
+  }
+
+  async function handleRejectUpload(id: string) {
+    try {
+      const res = await fetch(`/v1/knowledge/sources/${id}/reject-upload`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorPersona: 'Governance Officer' }),
+      });
+      if (!res.ok) return;
+      const d = await res.json();
+      upsert(d.source);
+    } catch { /* */ }
+  }
+
   const domainOptions = Array.from(new Set(sources.map((s) => s.domain).filter((d): d is string => !!d)))
     .sort().map((d) => ({ value: d, label: d }));
   const ownerOptions = Array.from(new Set(sources.map((s) => s.owner).filter((o): o is string => !!o)))
     .sort().map((o) => ({ value: o, label: o }));
+  const categoryOptions = Array.from(new Set(sources.map((s) => s.category).filter((c): c is string => !!c)))
+    .sort().map((c) => ({ value: c, label: c }));
 
   const columns: Column<RealKnowledgeSource>[] = [
     {
@@ -407,6 +604,8 @@ function SourcesTab() {
             <div className="flex items-center gap-2">
               <span className="font-medium text-text-hi truncate">{s.name}</span>
               {s.lifecycle === 'retired' && <Badge tone="neutral">retired</Badge>}
+              {s.approval_status === 'pending' && <Badge tone="warn">pending approval</Badge>}
+              {s.approval_status === 'rejected' && <Badge tone="err">rejected</Badge>}
             </div>
             <span className="mono text-[11px] text-text-low truncate block max-w-[320px]">{s.uri}</span>
           </div>
@@ -431,6 +630,9 @@ function SourcesTab() {
     { key: 'lifecycle', label: 'Lifecycle', options: [
       { value: 'active', label: 'Active' }, { value: 'retired', label: 'Retired' },
     ], predicate: (s, v) => s.lifecycle === v },
+    { key: 'approval_status', label: 'Approval', options: [
+      { value: 'approved', label: 'Approved' }, { value: 'pending', label: 'Pending' }, { value: 'rejected', label: 'Rejected' },
+    ], predicate: (s, v) => s.approval_status === v },
     { key: 'sensitivity', label: 'Sensitivity', options: [
       { value: 'public', label: 'public' }, { value: 'internal', label: 'internal' },
       { value: 'confidential', label: 'confidential' }, { value: 'restricted', label: 'restricted' },
@@ -445,6 +647,9 @@ function SourcesTab() {
   if (ownerOptions.length) {
     filters.push({ key: 'owner', label: 'Owner', options: ownerOptions, predicate: (s, v) => s.owner === v });
   }
+  if (categoryOptions.length) {
+    filters.push({ key: 'category', label: 'Category', options: categoryOptions, predicate: (s, v) => s.category === v });
+  }
 
   return (
     <>
@@ -452,10 +657,16 @@ function SourcesTab() {
         <p className="text-[12px] text-text-low">
           {sources.length} source{sources.length !== 1 ? 's' : ''} · documents are parsed, chunked, and embedded into pgvector
         </p>
-        <Button size="sm" icon={<Plus size={13} />} onClick={() => setShowAdd(true)}>
-          Add Source
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="subtle" size="sm" icon={<Database size={13} />} onClick={() => setShowUsageMap(true)}>
+            Usage Map
+          </Button>
+          <Button size="sm" icon={<Plus size={13} />} onClick={() => setShowAdd(true)}>
+            Add Source
+          </Button>
+        </div>
       </div>
+      <UsageMapModal open={showUsageMap} onClose={() => setShowUsageMap(false)} />
 
       {sources.length === 0 ? (
         <EmptyState
@@ -489,6 +700,9 @@ function SourcesTab() {
         onDelete={handleDelete}
         onRetire={handleRetire}
         onReactivate={handleReactivate}
+        onApproveUpload={handleApproveUpload}
+        onRejectUpload={handleRejectUpload}
+        canDecide={canDecide}
         activeRunId={selected ? activeRunIds[selected.id] : undefined}
       />
     </>

@@ -4,7 +4,18 @@ import type { Prov } from './provenance';
 import type { ToolPermission, Sensitivity, SourceApproval, RefreshCadence, TrackStatus, RiskTier, CapabilityTier } from './agent';
 
 // ---- Prompt Repository ----------------------------------------------------
-export type PromptKind = 'system' | 'safety' | 'citation' | 'template';
+export type PromptKind =
+  | 'system'
+  | 'user_template'
+  | 'task'
+  | 'persona'
+  | 'tool_use'
+  | 'citation'
+  | 'template'
+  | 'safety'
+  | 'refusal'
+  | 'escalation'
+  | 'stop_condition';
 export type PromptCategory = 'agent' | 'tool' | 'mcp' | 'rag'; // which module consumes this prompt
 export type PromptSource = 'manual' | 'llm_generated';
 export type PromptStatus = 'draft' | 'approved' | 'deprecated';
@@ -13,6 +24,10 @@ export interface PromptHistoryEntry {
   version: string;
   date: string;
   note: string;
+  // Full body snapshot as of this version — absent on entries recorded
+  // before version-snapshotting shipped, so compare/rollback can't offer
+  // those older entries rather than fabricate their text.
+  body?: string;
 }
 
 export interface PromptAsset {
@@ -28,6 +43,14 @@ export interface PromptAsset {
   owner: string;
   used_by: string[]; // agent_id[]
   history: PromptHistoryEntry[];
+  domain: string | null; // free text, mirrors G_Identity.use_case_category vocabulary
+  use_case: string | null; // free text description of the specific use case this prompt supports
+  risk_tier: RiskTier | null;
+  agent_type: CapabilityTier | null;
+  // Real, mechanically-applied citation template for kind='citation' prompts —
+  // placeholders: {source_name} {source_id} {doc_id} {doc_title}. Null = the
+  // platform default "[source: kb://<id> · <doc_id>]" bracket format.
+  citation_format: string | null;
 }
 
 // ---- Tool Catalog ---------------------------------------------------------
