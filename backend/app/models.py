@@ -410,6 +410,51 @@ class AssetBinding(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+# ---- A2A: agent cards -------------------------------------------------------
+
+class AgentCard(Base):
+    """How an agent may be called by ANOTHER agent (Blueprint A2A section).
+
+    A governed asset like tools and prompts: row-per-version, AssetStatus
+    lifecycle ("published" == approved), approvals via the polymorphic
+    `approvals` table, audit via the platform log. Readiness for discovery is
+    NEVER stored — it is computed from lifecycle, workflow, and deployment
+    state, which this platform already owns.
+    """
+    __tablename__ = "agent_cards"
+    __table_args__ = (UniqueConstraint("agent_id", "version"),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_control_records.id"), index=True
+    )
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[AssetStatus] = mapped_column(
+        Enum(AssetStatus, native_enum=False, length=30), default=AssetStatus.draft, index=True
+    )
+    description: Mapped[str] = mapped_column(Text, default="")
+    # standardized => discovery only; advanced => artifact exchange
+    capability_tier: Mapped[str] = mapped_column(String(32), default="standardized")
+    discovery_only: Mapped[bool] = mapped_column(Boolean, default=True)
+    message_task_format: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    artifact_exchange: Mapped[bool] = mapped_column(Boolean, default=False)
+    artifact_format: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    supported_tasks: Mapped[list] = mapped_column(JsonDoc, default=list)
+    skills: Mapped[list] = mapped_column(JsonDoc, default=list)
+    input_schema: Mapped[dict] = mapped_column(JsonDoc, default=dict)
+    output_schema: Mapped[dict] = mapped_column(JsonDoc, default=dict)
+    # {require_human_approval: bool, required_skills: [str]}
+    handoff_rules: Mapped[dict] = mapped_column(JsonDoc, default=dict)
+    authn_methods: Mapped[list] = mapped_column(JsonDoc, default=list)
+    # agent slugs allowed to call this one; empty = any discoverable agent
+    authorized_callers: Mapped[list] = mapped_column(JsonDoc, default=list)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=30)
+    failure_behavior: Mapped[str] = mapped_column(String(32), default="fail_fast")
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 # ---- Increment D: workflows + execution ------------------------------------
 
 class WorkflowStatus(str, enum.Enum):

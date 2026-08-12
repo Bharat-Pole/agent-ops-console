@@ -15,6 +15,10 @@ google-genai>=1.0
 # Asset Studio (Increment C): secrets-at-rest encryption + PDF parsing + MCP
 cryptography>=42
 pypdf>=4.0
+# Knowledge-base document parsers (DOCX / HTML / XLSX; CSV uses the stdlib)
+python-docx>=1.1
+beautifulsoup4>=4.12
+openpyxl>=3.1
 mcp>=1.0
 python-multipart>=0.0.9
 # Execution engine substrate (Decision 5.1): LangGraph + durable checkpointers

@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..adapters import files as file_store
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 rag_router = APIRouter(prefix="/api/rag", tags=["rag"])
 
 _EDIT_ROLES = (Role.ai_engineer, Role.agent_creator, Role.platform_admin)
-_ALLOWED_EXT = (".pdf", ".md", ".txt")
+_ALLOWED_EXT = (".pdf", ".md", ".txt", ".docx", ".html", ".htm", ".csv", ".xlsx")
 
 
 def _source_payload(s: KnowledgeSource) -> dict:
@@ -95,6 +95,49 @@ def get_source(source_id: uuid.UUID, db: Session = Depends(get_db), _: User = De
         for c in chunks
     ]
     return out
+
+
+_CHUNKS_MAX_LIMIT = 200
+
+
+@router.get("/{source_id}/chunks")
+def list_chunks(
+    source_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(current_user_dep),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=_CHUNKS_MAX_LIMIT),
+):
+    """READ-ONLY paginated view over existing chunks — an inspection surface,
+    not a retrieval one. Ordered by `ord` so paging is deterministic, and
+    `limit` is capped so a large corpus can never be pulled in one request."""
+    source = db.get(KnowledgeSource, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="source not found")
+    total = db.scalar(select(func.count(KbChunk.id)).where(KbChunk.source_id == source.id)) or 0
+    rows = db.scalars(
+        select(KbChunk).where(KbChunk.source_id == source.id)
+        .order_by(KbChunk.ord).offset(offset).limit(limit)
+    ).all()
+    return {
+        "source_id": str(source.id),
+        "source_name": source.name,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": [
+            {
+                "id": str(c.id),
+                "ord": c.ord,
+                "text": c.text,
+                "location": (c.meta or {}).get("location"),
+                "meta": c.meta,
+                # embedding STATE only — vectors themselves stay server-side
+                "has_embedding": c.embedding is not None,
+            }
+            for c in rows
+        ],
+    }
 
 
 @router.post("/{source_id}/reingest")

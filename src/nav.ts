@@ -43,7 +43,9 @@ export const NAV: NavGroup[] = [
     label: 'WORKSPACE',
     items: [
       { label: 'Agent Registry', to: '/agents', icon: LayoutGrid },
-      { label: 'Onboarding', to: '/onboarding', icon: Wand2 },
+      // agent creation now starts in the server-backed registry; the legacy
+      // /onboarding route redirects here so existing links keep working
+      { label: 'New Agent', to: '/agents', icon: Wand2 },
       { label: 'Playground', to: '/playground', icon: MessagesSquare },
     ],
   },

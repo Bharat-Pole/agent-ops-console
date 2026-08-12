@@ -300,6 +300,8 @@ export interface ServerTool {
   human_approval_required: boolean;
   status: AssetStatus;
   source: string;
+  /** Set when the tool was created by MCP discovery — already returned by the API. */
+  mcp_connector_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -367,8 +369,44 @@ export interface ServerPromptPack {
   approved_version?: number | null;
 }
 
+export interface PromptComparison {
+  pack: ServerPromptPack;
+  a: ServerPromptVersion;
+  b: ServerPromptVersion;
+  changed_fields: string[];
+  identical: boolean;
+}
+
+export interface PromptUsageRef {
+  agent_id: string;
+  agent_name: string | null;
+  agent_slug: string | null;
+  lifecycle_status: string | null;
+  reference_type: 'binding' | 'workflow_node' | 'deployment_pin';
+  version_policy?: string;
+  pinned_version?: number | null;
+  workflow_id?: string;
+  workflow_name?: string | null;
+  workflow_version?: number;
+  workflow_status?: string;
+  deployment_id?: string;
+  channel?: string;
+  deployment_status?: string;
+}
+
+export interface PromptUsage {
+  pack_id: string;
+  slug: string;
+  active: { bindings: PromptUsageRef[]; workflow_versions: PromptUsageRef[]; deployments: PromptUsageRef[] };
+  historical: { workflow_versions: PromptUsageRef[]; deployments: PromptUsageRef[] };
+  totals: { active: number; historical: number };
+}
+
 export const promptsApi = {
   list: () => api<ServerPromptPack[]>('/api/prompts'),
+  compare: (packId: string, a: number, b: number) =>
+    api<PromptComparison>(`/api/prompts/${packId}/versions/${a}/compare/${b}`),
+  usage: (packId: string) => api<PromptUsage>(`/api/prompts/${packId}/usage`),
   create: (body: { name: string; prompt_type: string; description?: string; content: string }) =>
     api<ServerPromptPack>('/api/prompts', { method: 'POST', body: JSON.stringify(body) }),
   get: (id: string) => api<ServerPromptPack>(`/api/prompts/${id}`),
@@ -396,9 +434,29 @@ export interface ServerKnowledgeSource {
   chunk_preview?: { ord: number; text: string; meta: Record<string, unknown>; has_embedding: boolean }[];
 }
 
+export interface KbChunkRow {
+  id: string;
+  ord: number;
+  text: string;
+  location: string | null;
+  meta: Record<string, unknown>;
+  has_embedding: boolean;
+}
+
+export interface KbChunkPage {
+  source_id: string;
+  source_name: string;
+  total: number;
+  offset: number;
+  limit: number;
+  items: KbChunkRow[];
+}
+
 export const knowledgeApi = {
   list: () => api<ServerKnowledgeSource[]>('/api/knowledge'),
   get: (id: string) => api<ServerKnowledgeSource>(`/api/knowledge/${id}`),
+  chunks: (id: string, offset = 0, limit = 25) =>
+    api<KbChunkPage>(`/api/knowledge/${id}/chunks?offset=${offset}&limit=${limit}`),
   upload: async (file: File, name: string, sensitivity: string) => {
     const form = new FormData();
     form.append('file', file);
@@ -774,6 +832,78 @@ export const telemetryApi = {
     api<{ id: string }>(`/api/runs/${runId}/feedback`, {
       method: 'POST', body: JSON.stringify({ rating, note }),
     }),
+};
+
+// ---- A2A agent cards --------------------------------------------------------
+
+export interface CardReadiness {
+  card_approved: boolean;
+  agent_in_production: boolean;
+  has_active_workflow: boolean;
+  has_active_deployment: boolean;
+  discoverable: boolean;
+  reasons: string[];
+}
+
+export interface ServerAgentCard {
+  id: string;
+  agent_id: string;
+  agent_slug: string | null;
+  agent_name: string | null;
+  version: number;
+  status: AssetStatus;
+  description: string;
+  capability_tier: string;
+  discovery_only: boolean;
+  message_task_format: string | null;
+  artifact_exchange: boolean;
+  artifact_format: string | null;
+  supported_tasks: string[];
+  skills: string[];
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  handoff_rules: Record<string, unknown>;
+  authn_methods: string[];
+  authorized_callers: string[];
+  timeout_seconds: number;
+  failure_behavior: string;
+  superseded_by: string | null;
+  readiness?: CardReadiness;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HandoffDecision {
+  allowed: boolean;
+  reasons: string[];
+  checks: Record<string, boolean>;
+  target: Record<string, unknown> | null;
+  rules_version: string;
+}
+
+export type AgentCardBody = Partial<Omit<ServerAgentCard, 'id' | 'agent_id' | 'version' | 'status'>>;
+
+export const a2aApi = {
+  list: () => api<ServerAgentCard[]>('/api/a2a/agent-cards'),
+  discover: (params?: { skill?: string; task?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.skill) qs.set('skill', params.skill);
+    if (params?.task) qs.set('task', params.task);
+    const tail = qs.toString();
+    return api<ServerAgentCard[]>(`/api/a2a/discover${tail ? `?${tail}` : ''}`);
+  },
+  getForAgent: (agentId: string) => api<ServerAgentCard>(`/api/a2a/agents/${agentId}/card`),
+  create: (agentId: string, body: AgentCardBody) =>
+    api<ServerAgentCard>(`/api/a2a/agents/${agentId}/card`, { method: 'POST', body: JSON.stringify(body) }),
+  update: (cardId: string, body: AgentCardBody) =>
+    api<ServerAgentCard>(`/api/a2a/cards/${cardId}`, { method: 'PUT', body: JSON.stringify(body) }),
+  newVersion: (cardId: string) =>
+    api<ServerAgentCard>(`/api/a2a/cards/${cardId}/new-version`, { method: 'POST' }),
+  submit: (cardId: string) =>
+    api<ServerAgentCard>(`/api/a2a/cards/${cardId}/submit`, { method: 'POST' }),
+  validateHandoff: (body: {
+    source_agent_slug: string; target_agent_slug: string; task: string; required_skill?: string | null;
+  }) => api<HandoffDecision>('/api/a2a/handoffs/validate', { method: 'POST', body: JSON.stringify(body) }),
 };
 
 export const bindingsApi = {

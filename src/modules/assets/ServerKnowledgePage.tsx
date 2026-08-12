@@ -5,7 +5,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
 import { PageHeader } from '@/components/shell/PageHeader';
 import { Badge, Button, Card, CardHeader, EmptyState } from '@/components/primitives';
-import { apiErrorMessage, knowledgeApi, type ServerKnowledgeSource } from '@/api/client';
+import {
+  apiErrorMessage, knowledgeApi,
+  type KbChunkPage, type ServerKnowledgeSource,
+} from '@/api/client';
 import { fmtDate } from '@/utils/format';
 
 const INPUT = 'h-9 w-full rounded-control border border-border bg-canvas px-2.5 text-[13px] text-text-hi outline-none focus:border-border-strong';
@@ -14,6 +17,7 @@ export default function ServerKnowledgePage() {
   const [sources, setSources] = useState<ServerKnowledgeSource[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ServerKnowledgeSource | null>(null);
+  const [browsing, setBrowsing] = useState<string | null>(null);
 
   const load = useCallback(() => {
     knowledgeApi.list().then(setSources).catch((e) => setError(apiErrorMessage(e)));
@@ -37,12 +41,13 @@ export default function ServerKnowledgePage() {
                         <Badge tone={s.status === 'ready' ? 'ok' : s.status === 'failed' ? 'err' : 'warn'}>{s.status}</Badge>
                         <Badge tone={s.embedded ? 'accent' : 'muted'}>{s.embedded ? 'embedded' : 'keyword-only'}</Badge></span>}
                       subtitle={<span className="mono text-[11px]">{s.filename} · {s.chunk_count} chunks · {(s.bytes / 1024).toFixed(1)} KB · {s.sensitivity}</span>}
-                      action={<Button size="tiny" variant="ghost" onClick={() => {
-                        knowledgeApi.get(s.id).then(setExpanded).catch((e) => setError(apiErrorMessage(e)));
-                      }}>Chunks</Button>}
+                      action={<Button size="tiny" variant="ghost"
+                        onClick={() => setBrowsing(browsing === s.id ? null : s.id)}>
+                        {browsing === s.id ? 'Hide chunks' : 'Browse chunks'}</Button>}
                     />
                     <div className="text-[12px] text-text-low">{s.retrieval_mode} · {fmtDate(s.created_at)}</div>
                     {s.error && <div className="mt-1 text-[12px] text-amber-400">{s.error}</div>}
+                    {browsing === s.id && <ChunkBrowser sourceId={s.id} />}
                   </Card>
                 ))}
               </div>
@@ -61,6 +66,50 @@ export default function ServerKnowledgePage() {
         </div>
         <UploadCard onDone={load} />
       </div>
+    </div>
+  );
+}
+
+/** Paginated, read-only view of what a document actually chunked into. */
+function ChunkBrowser({ sourceId }: { sourceId: string }) {
+  const PAGE = 10;
+  const [page, setPage] = useState<KbChunkPage | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    knowledgeApi.chunks(sourceId, offset, PAGE)
+      .then(setPage)
+      .catch((e) => setError(apiErrorMessage(e)));
+  }, [sourceId, offset]);
+
+  if (error) return <div className="mt-2 text-[12px] text-red-400">{error}</div>;
+  if (!page) return <div className="mt-2 text-[12px] text-text-low">Loading chunks…</div>;
+
+  const from = page.total === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + PAGE, page.total);
+
+  return (
+    <div className="mt-2 border-t border-border pt-2">
+      <div className="mb-1 flex items-center justify-between text-[11px] text-text-low">
+        <span>{from}–{to} of {page.total} chunks</span>
+        <span className="flex gap-1">
+          <Button size="tiny" variant="ghost" disabled={offset === 0}
+            onClick={() => setOffset(Math.max(0, offset - PAGE))}>Prev</Button>
+          <Button size="tiny" variant="ghost" disabled={to >= page.total}
+            onClick={() => setOffset(offset + PAGE)}>Next</Button>
+        </span>
+      </div>
+      {page.items.map((c) => (
+        <div key={c.id} className="mb-1.5 rounded-control border border-border bg-canvas p-2">
+          <div className="mb-0.5 flex justify-between text-[10px] text-text-low">
+            <span>#{c.ord} · {c.location ?? '—'}</span>
+            <span>{c.has_embedding ? 'embedded' : 'no embedding'}</span>
+          </div>
+          <div className="text-[12px] text-text-mid">{c.text}</div>
+        </div>
+      ))}
+      {page.items.length === 0 && <div className="text-[12px] text-text-low">No chunks on this page.</div>}
     </div>
   );
 }
@@ -85,9 +134,11 @@ function UploadCard({ onDone }: { onDone: () => void }) {
 
   return (
     <Card>
-      <CardHeader title="Upload source" subtitle="PDF, Markdown, or plain text (≤20MB)." />
+      <CardHeader title="Upload source"
+        subtitle="PDF, Word, HTML, CSV, Excel, Markdown, or plain text (≤20MB)." />
       <div className="flex flex-col gap-3">
-        <input ref={fileRef} type="file" accept=".pdf,.md,.txt" className="text-[12px] text-text-mid" />
+        <input ref={fileRef} type="file" accept=".pdf,.md,.txt,.docx,.html,.htm,.csv,.xlsx"
+          className="text-[12px] text-text-mid" />
         <label className="block"><span className="mb-1 block text-[12px] text-text-mid">Display name</span>
           <input className={INPUT} value={name} onChange={(e) => setName(e.target.value)} placeholder="defaults to filename" /></label>
         <label className="block"><span className="mb-1 block text-[12px] text-text-mid">Sensitivity</span>

@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import audit as audit_module
+from .a2a.router import router as a2a_router
 from .assets.approvals_router import router as approvals_router
 from .assets.bindings_router import router as bindings_router
 from .assets.kb_router import rag_router, router as kb_router
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(governance_router)
     app.include_router(deployment_router)
     app.include_router(telemetry_router)
+    app.include_router(a2a_router)
     register_event_handlers()  # re-certification trigger (asset.approved → needs_review)
     app.include_router(audit_module.router, dependencies=[Depends(current_user_dep)])
 

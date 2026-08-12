@@ -61,7 +61,11 @@ export default function ServerMcpPage() {
                 title={<span className="flex items-center gap-2">{c.name}
                   <Badge tone={c.health.ok === true ? 'ok' : c.health.ok === false ? 'err' : 'muted'}>
                     {c.health.ok === true ? 'healthy' : c.health.ok === false ? 'unhealthy' : 'unchecked'}
-                  </Badge></span>}
+                  </Badge>
+                  {/* connector status is separate from health: a disabled connector
+                      is skipped regardless of how healthy its last probe was */}
+                  {c.status !== 'active' && <Badge tone="muted">{c.status}</Badge>}
+                </span>}
                 subtitle={<span className="mono text-[11px]">{c.endpoint} · {c.transport}</span>}
                 action={<div className="flex gap-2">
                   <Button size="tiny" variant="subtle" icon={<Radar size={12} />} onClick={() => discover(c)}>Discover tools</Button>

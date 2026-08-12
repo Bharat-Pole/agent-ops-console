@@ -10,8 +10,6 @@ import IntentWizardPage from '@/modules/registry/IntentWizardPage';
 import RecommendationPage from '@/modules/registry/RecommendationPage';
 import WorkflowBuilderPage from '@/modules/builder/WorkflowBuilderPage';
 import RunConsolePage from '@/modules/builder/RunConsolePage';
-import OnboardingPage from '@/modules/onboarding/OnboardingPage';
-import WizardPage from '@/modules/onboarding/WizardPage';
 import PlaygroundPage from '@/modules/playground/PlaygroundPage';
 import ServerPromptsPage from '@/modules/assets/ServerPromptsPage';
 import ServerToolsPage from '@/modules/assets/ServerToolsPage';
@@ -23,7 +21,7 @@ import ApprovalsQueuePage from '@/modules/assets/ApprovalsQueuePage';
 import ServerEvaluationsPage from '@/modules/assets/ServerEvaluationsPage';
 import ServerMonitoringPage from '@/modules/assets/ServerMonitoringPage';
 import ServerModelsPage from '@/modules/assets/ServerModelsPage';
-import A2APage from '@/modules/a2a/A2APage';
+import ServerA2APage from '@/modules/assets/ServerA2APage';
 import NotFound from '@/modules/NotFound';
 
 // Session gate: everything behind it requires a real backend login. Renders
@@ -59,8 +57,13 @@ export default function App() {
           <Route path="/agents/:id/recommendation" element={<RecommendationPage />} />
           <Route path="/agents/:id/workflows" element={<WorkflowBuilderPage />} />
           <Route path="/agents/:id/console" element={<RunConsolePage />} />
-          <Route path="/onboarding" element={<OnboardingPage />} />
-          <Route path="/onboarding/:draftId/phase/:n" element={<WizardPage />} />
+          {/* The legacy onboarding wizard writes only to the in-browser kernel:
+              it looks like agent creation but produces nothing governed — no
+              registry record, nothing runnable, nothing deployable. Old links
+              are kept working by redirecting to the real server-backed entry
+              point rather than left pointing at a wizard that goes nowhere. */}
+          <Route path="/onboarding" element={<Navigate to="/agents" replace />} />
+          <Route path="/onboarding/:draftId/phase/:n" element={<Navigate to="/agents" replace />} />
           <Route path="/playground" element={<PlaygroundPage />} />
           <Route path="/playground/:agentId" element={<PlaygroundPage />} />
 
@@ -72,8 +75,7 @@ export default function App() {
           <Route path="/rag" element={<ServerRagPage />} />
           <Route path="/models" element={<ServerModelsPage />} />
           <Route path="/secrets" element={<ServerSecretsPage />} />
-          <Route path="/a2a" element={<A2APage />} />
-          <Route path="/a2a/:agentId" element={<A2APage />} />
+          <Route path="/a2a" element={<ServerA2APage />} />
 
           {/* GOVERNANCE — server approval queue */}
           <Route path="/governance" element={<ApprovalsQueuePage />} />

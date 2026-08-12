@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import { PageHeader } from '@/components/shell/PageHeader';
 import { Badge, Button, DataTable, EmptyState, Modal, type Column } from '@/components/primitives';
-import { apiErrorMessage, toolsApi, type ServerTool } from '@/api/client';
+import { apiErrorMessage, mcpApi, toolsApi, type ServerConnector, type ServerTool } from '@/api/client';
+import { flattenSchema, isRenderableSchema } from '@/modules/assets/schemaView';
 import { fmtDate, titleCase } from '@/utils/format';
 
 const STATUS_TONE: Record<string, 'ok' | 'accent' | 'warn' | 'neutral' | 'muted' | 'err'> = {
@@ -143,9 +144,81 @@ function CreateToolModal({ open, onClose, onDone }: { open: boolean; onClose: ()
   );
 }
 
+/** Read-only contract view. Falls back to raw JSON whenever the simple
+ *  flattener cannot faithfully model the schema. */
+function SchemaView({ label, schema }: { label: string; schema: Record<string, unknown> }) {
+  const [raw, setRaw] = useState(false);
+  const renderable = isRenderableSchema(schema);
+  const fields = renderable ? flattenSchema(schema) : [];
+  const isEmpty = !schema || Object.keys(schema).length === 0;
+
+  return (
+    <div className="rounded-control border border-border bg-canvas p-2">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[11px] uppercase tracking-wide text-text-low">{label}</span>
+        {!isEmpty && (
+          <button className="text-[10px] text-text-low hover:text-text-hi"
+            onClick={() => setRaw((r) => !r)}>
+            {raw ? 'structured' : 'raw JSON'}
+          </button>
+        )}
+      </div>
+
+      {isEmpty ? (
+        <div className="text-[11px] text-text-low">Not declared.</div>
+      ) : raw || !renderable ? (
+        <>
+          {!renderable && (
+            <div className="mb-1 text-[10px] text-amber-400">
+              Contains constructs this viewer does not model — showing raw JSON.
+            </div>
+          )}
+          <pre className="max-h-48 overflow-auto text-[10px] text-text-mid">
+            {JSON.stringify(schema, null, 2)}
+          </pre>
+        </>
+      ) : fields.length === 0 ? (
+        <div className="text-[11px] text-text-low">No fields declared.</div>
+      ) : (
+        <table className="w-full text-[11px]">
+          <tbody>
+            {fields.map((f) => (
+              <tr key={f.path} className="border-t border-border align-top">
+                <td className="mono py-0.5 pr-2 text-text-hi">
+                  {f.path}
+                  {f.required && <span className="ml-1 text-red-400" title="required">*</span>}
+                </td>
+                <td className="mono py-0.5 pr-2 text-text-low">{f.type}</td>
+                <td className="py-0.5 text-text-mid">
+                  {f.description}
+                  {f.enumValues && (
+                    <span className="ml-1 text-text-low">one of: {f.enumValues.join(', ')}</span>
+                  )}
+                  {f.defaultValue !== undefined && (
+                    <span className="ml-1 text-text-low">default: {JSON.stringify(f.defaultValue)}</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function ToolDetailModal({ tool, onClose, onChanged }: { tool: ServerTool; onClose: () => void; onChanged: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [tryout, setTryout] = useState<string | null>(null);
+  const [connector, setConnector] = useState<ServerConnector | null>(null);
+
+  // provenance for MCP-discovered tools, joined from the existing connectors API
+  useEffect(() => {
+    if (!tool.mcp_connector_id) return;
+    mcpApi.list()
+      .then((rows) => setConnector(rows.find((c) => c.id === tool.mcp_connector_id) ?? null))
+      .catch(() => setConnector(null));
+  }, [tool.mcp_connector_id]);
 
   const act = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -178,6 +251,30 @@ function ToolDetailModal({ tool, onClose, onChanged }: { tool: ServerTool; onClo
         <div className="text-[12px] text-text-low">
           HITL: {tool.human_approval_required ? 'required' : 'no'} · risk {tool.risk_level} · auth {tool.auth.method}
           {tool.auth.credential_ref ? ` (secret: ${tool.auth.credential_ref})` : ''}
+        </div>
+        {tool.mcp_connector_id && (
+          <div className="rounded-control border border-border bg-canvas px-2 py-1 text-[11px] text-text-mid">
+            Discovered from MCP connector{' '}
+            <span className="text-text-hi">{connector?.name ?? tool.mcp_connector_id}</span>
+            {connector && (
+              <>
+                {' · '}
+                <Badge tone={connector.health.ok === true ? 'ok'
+                  : connector.health.ok === false ? 'err' : 'muted'}>
+                  {connector.health.ok === true ? 'healthy'
+                    : connector.health.ok === false ? 'unhealthy' : 'unchecked'}
+                </Badge>
+              </>
+            )}
+            <span className="ml-1 text-text-low">
+              — remote discovery never approves a tool; governance fields above are the platform's.
+            </span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-2">
+          <SchemaView label="Input schema" schema={tool.input_schema} />
+          <SchemaView label="Output schema" schema={tool.output_schema} />
         </div>
         {tool.is_write_class && (
           <div className="rounded-control border border-amber-900/50 bg-canvas px-3 py-2 text-[12px] text-amber-400">

@@ -16,7 +16,10 @@ from .. import events
 from ..audit import audit
 from ..auth.deps import current_user_dep, require_role
 from ..db import get_db
-from ..models import AssetStatus, PromptPack, PromptVersion, Role, User
+from ..models import (
+    AgentControlRecord, AssetBinding, AssetStatus, Deployment, PromptPack,
+    PromptVersion, Role, User, Workflow, WorkflowStatus, WorkflowVersion,
+)
 from . import workflow
 
 router = APIRouter(prefix="/api/prompts", tags=["prompts"])
@@ -115,6 +118,134 @@ def _versions(db: Session, pack_id: uuid.UUID) -> list[PromptVersion]:
 def get_pack(pack_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(current_user_dep)):
     pack = _get_pack(db, pack_id)
     return _pack_payload(pack, _versions(db, pack.id))
+
+
+_COMPARED_FIELDS = ("content", "variables", "status", "notes", "rolled_back_from")
+
+
+@router.get("/{pack_id}/versions/{version_a}/compare/{version_b}")
+def compare_versions(
+    pack_id: uuid.UUID,
+    version_a: int,
+    version_b: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(current_user_dep),
+):
+    """READ-ONLY comparison of two versions of the SAME pack.
+
+    Returns both immutable rows plus which fields differ; the textual diff is
+    rendered client-side. Nothing is written — no version is created, no
+    approval state moves, and no diff result is persisted.
+    """
+    pack = _get_pack(db, pack_id)
+    rows = {v.version: v for v in _versions(db, pack.id)}
+    for wanted in (version_a, version_b):
+        if wanted not in rows:
+            # scoping the lookup to this pack is what stops a caller comparing
+            # versions across two different packs
+            raise HTTPException(status_code=404,
+                                detail=f"version {wanted} does not belong to this prompt pack")
+    a, b = rows[version_a], rows[version_b]
+    changed = [f for f in _COMPARED_FIELDS if getattr(a, f, None) != getattr(b, f, None)]
+    return {
+        "pack": _pack_payload(pack),
+        "a": _version_payload(a),
+        "b": _version_payload(b),
+        "changed_fields": changed,
+        "identical": not changed,
+    }
+
+
+@router.get("/{pack_id}/usage")
+def pack_usage(
+    pack_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(current_user_dep),
+):
+    """Where this prompt is referenced, COMPUTED from persisted references.
+
+    Nothing is stored: a `used_by` column would be a duplicate that silently
+    drifts from the graphs and bindings it claims to summarise. Three real
+    reference paths exist — asset bindings, workflow-version graphs, and the
+    frozen asset pins inside deployment manifests — and workflow/deployment
+    status gives an honest active-vs-historical split.
+    """
+    pack = _get_pack(db, pack_id)
+    slug = pack.slug
+    agents = {a.id: a for a in db.scalars(select(AgentControlRecord)).all()}
+
+    def agent_info(agent_id) -> dict:
+        agent = agents.get(agent_id)
+        return {
+            "agent_id": str(agent_id),
+            "agent_name": agent.name if agent else None,
+            "agent_slug": agent.slug if agent else None,
+            "lifecycle_status": agent.lifecycle_status.value if agent else None,
+        }
+
+    bindings = [
+        {**agent_info(b.agent_id), "reference_type": "binding",
+         "version_policy": b.version_policy, "pinned_version": b.pinned_version}
+        for b in db.scalars(select(AssetBinding).where(
+            AssetBinding.asset_type == "prompt", AssetBinding.asset_ref == slug)).all()
+    ]
+
+    active_workflows: list[dict] = []
+    historical_workflows: list[dict] = []
+    workflows = {w.id: w for w in db.scalars(select(Workflow)).all()}
+    for version in db.scalars(select(WorkflowVersion)).all():
+        nodes = (version.graph or {}).get("nodes") or []
+        if not any((n.get("config") or {}).get("pack_ref") == slug for n in nodes):
+            continue
+        workflow = workflows.get(version.workflow_id)
+        entry = {
+            **agent_info(workflow.agent_id if workflow else None),
+            "reference_type": "workflow_node",
+            "workflow_id": str(version.workflow_id),
+            "workflow_name": workflow.name if workflow else None,
+            "workflow_version": version.version,
+            "workflow_status": version.status.value,
+        }
+        (active_workflows if version.status == WorkflowStatus.active
+         else historical_workflows).append(entry)
+
+    active_deployments: list[dict] = []
+    historical_deployments: list[dict] = []
+    for deployment in db.scalars(select(Deployment)).all():
+        pin = ((deployment.manifest or {}).get("asset_pins") or {}).get("prompts", {}).get(slug)
+        if not pin:
+            continue
+        entry = {
+            **agent_info(deployment.agent_id),
+            "reference_type": "deployment_pin",
+            "deployment_id": str(deployment.id),
+            "channel": deployment.channel,
+            "deployment_status": deployment.status,
+            "pinned_version": pin.get("version"),
+        }
+        (active_deployments if deployment.status == "active"
+         else historical_deployments).append(entry)
+
+    return {
+        "pack_id": str(pack.id),
+        "slug": slug,
+        # currently in force
+        "active": {
+            "bindings": bindings,
+            "workflow_versions": active_workflows,
+            "deployments": active_deployments,
+        },
+        # referenced, but not by anything live — shown separately so a reviewer
+        # never mistakes an old draft or superseded deployment for current use
+        "historical": {
+            "workflow_versions": historical_workflows,
+            "deployments": historical_deployments,
+        },
+        "totals": {
+            "active": len(bindings) + len(active_workflows) + len(active_deployments),
+            "historical": len(historical_workflows) + len(historical_deployments),
+        },
+    }
 
 
 class VersionBody(BaseModel):

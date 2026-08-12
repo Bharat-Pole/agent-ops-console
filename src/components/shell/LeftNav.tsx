@@ -6,7 +6,7 @@ import { useWorkspace } from '@/kernel/store';
 import { cn } from '@/utils/cn';
 
 const CREATE_MENU = [
-  { label: 'New Agent', hint: 'Onboarding wizard', icon: Wand2, to: '/onboarding?new=1' },
+  { label: 'New Agent', hint: 'Create a governed agent', icon: Wand2, to: '/agents' },
   { label: 'New Prompt', hint: 'Prompt Repository', icon: FileText, to: '/prompts?new=1' },
   { label: 'Register Tool', hint: 'Tools', icon: Wrench, to: '/tools/new' },
   { label: 'Register MCP connector', hint: 'MCP Connectors', icon: Plug, to: '/mcp/new' },
