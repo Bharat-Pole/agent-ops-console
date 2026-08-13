@@ -1,13 +1,8 @@
 export { Button } from './Button';
 export { Card, CardHeader } from './Card';
 export { Badge } from './Badge';
-export { StatusPill } from './StatusPill';
-export { TierBadge } from './TierBadge';
-export { RiskBadge } from './RiskBadge';
 export { Tooltip } from './Tooltip';
 export { Modal } from './Modal';
-export { Drawer } from './Drawer';
-export { Tabs, type TabItem } from './Tabs';
 export { DataTable, type Column, type FilterDef } from './DataTable';
 export { EmptyState } from './EmptyState';
 export { JsonViewer } from './JsonViewer';

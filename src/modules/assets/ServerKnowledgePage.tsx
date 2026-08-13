@@ -26,7 +26,7 @@ export default function ServerKnowledgePage() {
 
   return (
     <div>
-      <PageHeader title="Knowledge Base" description="Upload PDF/MD/TXT — parsed, chunked, and embedded (when an embedding provider is configured)." />
+      <PageHeader title="Knowledge Base" description="Upload PDF, Markdown, TXT, DOCX, HTML, CSV or XLSX — parsed, chunked, and embedded (when an embedding provider is configured)." />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           {error && <div className="mb-3 text-[13px] text-red-400">{error}</div>}

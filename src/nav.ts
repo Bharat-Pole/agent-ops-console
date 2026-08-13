@@ -6,7 +6,6 @@ import {
   Home,
   LayoutGrid,
   Wand2,
-  MessagesSquare,
   FileText,
   Wrench,
   Plug,
@@ -46,7 +45,9 @@ export const NAV: NavGroup[] = [
       // agent creation now starts in the server-backed registry; the legacy
       // /onboarding route redirects here so existing links keep working
       { label: 'New Agent', to: '/agents', icon: Wand2 },
-      { label: 'Playground', to: '/playground', icon: MessagesSquare },
+      // Playground removed: it was a kernel-backed surface that could not see
+      // server-created agents and ran them outside the governed engine. Testing
+      // lives on the agent's own run console (/agents/:id/console).
     ],
   },
   {

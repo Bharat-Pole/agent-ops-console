@@ -15,6 +15,7 @@ import {
   type ServerAgent, type ServerLifecycleStatus,
 } from '@/api/client';
 import { fmtDate, titleCase } from '@/utils/format';
+import { useCreateParam } from '@/hooks/useCreateParam';
 
 export const SERVER_LIFECYCLE_TONE: Record<ServerLifecycleStatus, 'ok' | 'accent' | 'warn' | 'neutral' | 'muted' | 'err'> = {
   draft: 'muted',
@@ -36,6 +37,7 @@ export default function ServerRegistryPage() {
   const [agents, setAgents] = useState<ServerAgent[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  useCreateParam(setCreateOpen);   // left-nav "+ New" deep link
 
   const load = useCallback(() => {
     setLoadError(null);

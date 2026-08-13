@@ -2,20 +2,25 @@ import { useState, useRef, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Plus, PanelLeftClose, PanelLeftOpen, Wand2, FileText, Wrench, Plug, Database } from 'lucide-react';
 import { NAV } from '@/nav';
-import { useWorkspace } from '@/kernel/store';
+import { useUi } from '@/ui/store';
 import { cn } from '@/utils/cn';
 
+// Every target must be a route that exists in App.tsx. The /tools/new,
+// /mcp/new and /knowledge/new wizard routes were removed when these pages
+// became server-backed; `?new=1` opens the create modal on the real page
+// instead (see useCreateParam). Knowledge needs no param — its upload card is
+// always on screen.
 const CREATE_MENU = [
-  { label: 'New Agent', hint: 'Create a governed agent', icon: Wand2, to: '/agents' },
+  { label: 'New Agent', hint: 'Create a governed agent', icon: Wand2, to: '/agents?new=1' },
   { label: 'New Prompt', hint: 'Prompt Repository', icon: FileText, to: '/prompts?new=1' },
-  { label: 'Register Tool', hint: 'Tools', icon: Wrench, to: '/tools/new' },
-  { label: 'Register MCP connector', hint: 'MCP Connectors', icon: Plug, to: '/mcp/new' },
-  { label: 'Add Knowledge Source', hint: 'Knowledge', icon: Database, to: '/knowledge/new' },
+  { label: 'Register Tool', hint: 'Tools', icon: Wrench, to: '/tools?new=1' },
+  { label: 'Register MCP connector', hint: 'MCP Connectors', icon: Plug, to: '/mcp?new=1' },
+  { label: 'Add Knowledge Source', hint: 'Knowledge', icon: Database, to: '/knowledge' },
 ];
 
 export function LeftNav() {
-  const collapsed = useWorkspace((s) => s.ui.navCollapsed);
-  const toggleNav = useWorkspace((s) => s.toggleNav);
+  const collapsed = useUi((s) => s.navCollapsed);
+  const toggleNav = useUi((s) => s.toggleNav);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();

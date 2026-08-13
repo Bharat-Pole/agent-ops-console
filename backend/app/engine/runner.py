@@ -24,7 +24,8 @@ from ..models import (
     AgentControlRecord, ModelCatalogEntry, RunHitl, RunStatus, RunStep, WorkflowRun, utcnow,
 )
 from .handlers import HANDLERS, EngineState, ExecCtx, NodeExecutionError
-from .validation import topological_order
+from . import conditions
+from .validation import default_edge, outgoing, topological_order
 
 _checkpointer_lock = threading.Lock()
 _checkpointer = None
@@ -135,11 +136,59 @@ def compile_graph(graph_dict: dict, ctx: ExecCtx, spans: _SpanWriter):
     lg_ids = {node_id: f"n_{node_id}" for node_id in order}
     for node_id in order:
         builder.add_node(lg_ids[node_id], make_node(nodes_by_id[node_id]))
-    if order:
-        builder.add_edge(START, lg_ids[order[0]])
-        for a, b in zip(order, order[1:]):
-            builder.add_edge(lg_ids[a], lg_ids[b])
-        builder.add_edge(lg_ids[order[-1]], END)
+
+    if not order:
+        return builder.compile(checkpointer=get_checkpointer())
+
+    # Edges now ROUTE execution rather than merely implying an order. Before
+    # this, the graph was wired START → order[0] → order[1] → … → END, so a
+    # hub-and-spoke or branching graph rendered correctly and ran as a straight
+    # line. Validation rejects cycles, so every path here terminates.
+    out = outgoing(graph_dict)
+    entry = order[0]
+    builder.add_edge(START, lg_ids[entry])
+
+    for node_id in order:
+        edges = out.get(node_id, [])
+        if not edges:
+            builder.add_edge(lg_ids[node_id], END)
+            continue
+
+        conditional = [e for e in edges if e.get("condition")]
+        if not conditional:
+            # single unconditional successor (validation rejects the ambiguous
+            # multi-edge-no-condition case)
+            builder.add_edge(lg_ids[node_id], lg_ids[edges[0]["to"]])
+            continue
+
+        fallback = default_edge(edges)
+        targets = {lg_ids[e["to"]] for e in edges}
+        targets.add(END)
+
+        def make_router(node_id: str, edges: list[dict], fallback: dict | None):
+            def route(state: EngineState) -> str:
+                # authored order decides precedence: first match wins
+                for edge in edges:
+                    when = edge.get("condition")
+                    if when and conditions.evaluate(when, dict(state)):
+                        spans.write(node_id, "edge", "ok", 0, {
+                            "routed_to": edge["to"],
+                            "matched": conditions.summarize(when)})
+                        return lg_ids[edge["to"]]
+                if fallback is not None:
+                    spans.write(node_id, "edge", "ok", 0, {
+                        "routed_to": fallback["to"], "matched": "default (no condition matched)"})
+                    return lg_ids[fallback["to"]]
+                # Validation requires a default, so this is defensive only —
+                # end the run visibly rather than routing somewhere arbitrary.
+                spans.write(node_id, "edge", "failed", 0, {
+                    "error": "no condition matched and no default edge exists"})
+                return END
+            return route
+
+        builder.add_conditional_edges(
+            lg_ids[node_id], make_router(node_id, edges, fallback), sorted(targets))
+
     return builder.compile(checkpointer=get_checkpointer())
 
 

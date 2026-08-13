@@ -219,10 +219,21 @@ export interface FlowNode {
   label: string;
   config?: Record<string, unknown>;
 }
+/** A condition the engine can actually evaluate — see engine/conditions.py. */
+export interface EdgeCondition {
+  field: string;
+  op: string;
+  value?: unknown;
+}
+
 export interface FlowEdge {
   from: string;
   to: string;
+  /** Recommender annotation of intent ("route:refunds"). Documents a branch;
+   *  does NOT execute one. */
   when?: string;
+  /** The executable predicate. Its presence is what makes an edge conditional. */
+  condition?: EdgeCondition;
 }
 
 export interface RecommendationItem {
@@ -783,8 +794,18 @@ export interface AccessGroupRow {
   keys: { id: string; name: string; prefix: string; revoked: boolean; created_at: string }[];
 }
 
+export interface AdmissionPreview {
+  channel: string;
+  allowed: boolean;
+  reasons: string[];
+  workflow_version_id: string | null;
+  evaluation: { run_id: string; passed: boolean; score: number | null; started_at: string } | null;
+}
+
 export const deploymentsApi = {
   list: (agentId: string) => api<ServerDeployment[]>(`/api/agents/${agentId}/deployments`),
+  admission: (agentId: string, channel: string) =>
+    api<AdmissionPreview>(`/api/agents/${agentId}/deployments/admission?channel=${channel}`),
   deploy: (agentId: string, body: { channel: string; access_group_id?: string | null; rate_limit_per_min?: number }) =>
     api<ServerDeployment>(`/api/agents/${agentId}/deployments`, { method: 'POST', body: JSON.stringify(body) }),
   rollback: (deploymentId: string) =>

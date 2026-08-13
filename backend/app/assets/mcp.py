@@ -12,6 +12,8 @@ Endpoints are SSRF-guarded like every other outbound test call.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import importlib
 import re
 import uuid
 from dataclasses import dataclass
@@ -43,15 +45,86 @@ class DiscoveryError(Exception):
     pass
 
 
+class TransportUnsupported(DiscoveryError):
+    """The installed SDK exposes no client we know how to drive."""
+
+
+@contextlib.asynccontextmanager
+async def open_transport(endpoint: str, transport: str, headers: dict[str, str]):
+    """Open MCP transport streams, tolerating both SDK majors.
+
+    Our pin is `mcp>=1.0`, and the two majors differ exactly here: v1 exported
+    `streamablehttp_client(url, headers=...)`, while v2 renamed it to
+    `streamable_http_client` and moved headers onto an httpx client passed in.
+    A fresh install resolves to v2, so the v1-only call silently made the
+    DEFAULT transport unusable — discovery and execution both failed with an
+    ImportError wrapped as a connection failure.
+
+    Discovery and execution share this helper so they cannot drift apart again.
+    SSE is unchanged across the two majors.
+    """
+    if transport == "sse":
+        from mcp.client.sse import sse_client
+        async with sse_client(endpoint, headers=headers or None) as streams:
+            yield streams[0], streams[1]
+        return
+
+    module = importlib.import_module("mcp.client.streamable_http")
+
+    legacy = getattr(module, "streamablehttp_client", None)      # SDK v1
+    if legacy is not None:
+        async with legacy(endpoint, headers=headers or None) as streams:
+            yield streams[0], streams[1]
+        return
+
+    modern = getattr(module, "streamable_http_client", None)     # SDK v2
+    if modern is None:
+        raise TransportUnsupported(
+            "the installed mcp SDK exposes neither streamablehttp_client (v1) nor "
+            "streamable_http_client (v2); cannot open a streamable-http connection")
+    if headers:
+        # v2 carries auth headers on the http client rather than the call
+        async with module.create_mcp_http_client(headers=headers) as http_client:
+            async with modern(endpoint, http_client=http_client) as streams:
+                yield streams[0], streams[1]
+    else:
+        async with modern(endpoint) as streams:
+            yield streams[0], streams[1]
+
+
+def sdk_attr(obj: object, *names: str, default=None):
+    """Read the first attribute that exists, across SDK naming conventions.
+
+    v1 model fields were camelCase on the wire and in Python (`inputSchema`,
+    `isError`); v2 exposes snake_case. Both majors satisfy our `mcp>=1.0` pin.
+    """
+    for name in names:
+        value = getattr(obj, name, None)
+        if value is not None:
+            return value
+    return default
+
+
+def explain_exc(exc: BaseException) -> str:
+    """Flatten ExceptionGroups into something a human can act on.
+
+    anyio task groups surface failures as 'unhandled errors in a TaskGroup
+    (1 sub-exception)', which hides the actual cause — a connection refusal, a
+    404 on the endpoint path, an SDK mismatch. Discovery failures are read by
+    people trying to work out why their server will not register, so the real
+    message has to survive.
+    """
+    inner = getattr(exc, "exceptions", None)
+    if inner:
+        return "; ".join(explain_exc(e) for e in inner)
+    text = str(exc).strip()
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+
+
 def _discover_real(endpoint: str, transport: str, headers: dict[str, str], timeout: float) -> list[DiscoveredTool]:
     async def _run() -> list[DiscoveredTool]:
         from mcp import ClientSession
-        if transport == "sse":
-            from mcp.client.sse import sse_client as connect
-        else:
-            from mcp.client.streamable_http import streamablehttp_client as connect
-        async with connect(endpoint, headers=headers or None) as streams:
-            read, write = streams[0], streams[1]
+        async with open_transport(endpoint, transport, headers) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.list_tools()
@@ -59,7 +132,7 @@ def _discover_real(endpoint: str, transport: str, headers: dict[str, str], timeo
                     DiscoveredTool(
                         name=t.name,
                         description=t.description or "",
-                        input_schema=t.inputSchema or {},
+                        input_schema=sdk_attr(t, "input_schema", "inputSchema", default={}),
                     )
                     for t in result.tools
                 ]
@@ -67,7 +140,7 @@ def _discover_real(endpoint: str, transport: str, headers: dict[str, str], timeo
     try:
         return asyncio.run(asyncio.wait_for(_run(), timeout=timeout))
     except Exception as exc:  # network/protocol errors become one honest failure kind
-        raise DiscoveryError(str(exc)) from exc
+        raise DiscoveryError(explain_exc(exc)) from exc
 
 
 # Test seam — same pattern as adapters.models.set_adapter_override.

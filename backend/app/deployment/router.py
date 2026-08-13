@@ -24,7 +24,7 @@ from ..auth.deps import current_user_dep, require_role
 from ..db import get_db
 from ..engine import runner
 from ..models import (
-    AccessGroup, AgentControlRecord, ApiKey, AssetStatus, Deployment, PromptPack,
+    AccessGroup, AgentControlRecord, ApiKey, AssetStatus, Deployment, EvalRun, PromptPack,
     PromptVersion, Role, RunHitl, RunStatus, ToolRecord, User, Workflow,
     WorkflowRun, WorkflowStatus, WorkflowVersion, utcnow,
 )
@@ -159,6 +159,56 @@ class DeployBody(BaseModel):
     channel: str = Field(default="sandbox", pattern="^(sandbox|production)$")
     access_group_id: uuid.UUID | None = None
     rate_limit_per_min: int = Field(default=30, ge=1, le=600)
+
+
+@router.get("/api/agents/{agent_id}/deployments/admission")
+def admission_preview(agent_id: uuid.UUID, channel: str = "production",
+                      db: Session = Depends(get_db),
+                      user: User = Depends(current_user_dep)):
+    """What deploying WOULD decide, without deciding it.
+
+    The admission rule spans evaluation, lifecycle, evidence and FinOps, and
+    none of it was visible until a deploy attempt returned 403 — so the
+    dependency between the Evaluation Center and this button was real but
+    undrawn. This runs the SAME policy call the deploy route runs; it must
+    never grow its own copy of the rule, or the preview starts lying.
+
+    Read-only: no audit row, no mutation. The DENY that matters is still the
+    one audited at deploy time.
+    """
+    if channel not in ("sandbox", "production"):
+        raise HTTPException(status_code=422, detail="channel must be sandbox or production")
+    agent = db.get(AgentControlRecord, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="agent not found")
+
+    version = db.scalars(
+        select(WorkflowVersion).join(Workflow, Workflow.id == WorkflowVersion.workflow_id)
+        .where(Workflow.agent_id == agent.id, WorkflowVersion.status == WorkflowStatus.active)
+    ).first()
+    if version is None:
+        return {"channel": channel, "allowed": False,
+                "reasons": ["agent has no active workflow version"],
+                "evaluation": None, "workflow_version_id": None}
+
+    decision = policy.check_deploy_admission(db, agent, version, channel)
+
+    # The eval leg is the one people chase, so name the run rather than only
+    # reporting its absence — this is what links the two pages.
+    latest = db.scalars(select(EvalRun).where(
+        EvalRun.agent_id == agent.id,
+        EvalRun.workflow_version_id == version.id,
+        EvalRun.status == "completed").order_by(EvalRun.started_at.desc())).first()
+    evaluation = None
+    if latest is not None:
+        evaluation = {
+            "run_id": str(latest.id),
+            "passed": bool((latest.scorecard or {}).get("overall_passed")),
+            "score": (latest.scorecard or {}).get("score"),
+            "started_at": latest.started_at.isoformat(),
+        }
+    return {"channel": channel, "allowed": decision.allowed, "reasons": decision.reasons,
+            "workflow_version_id": str(version.id), "evaluation": evaluation}
 
 
 @router.post("/api/agents/{agent_id}/deployments", status_code=201)

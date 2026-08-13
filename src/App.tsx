@@ -10,7 +10,6 @@ import IntentWizardPage from '@/modules/registry/IntentWizardPage';
 import RecommendationPage from '@/modules/registry/RecommendationPage';
 import WorkflowBuilderPage from '@/modules/builder/WorkflowBuilderPage';
 import RunConsolePage from '@/modules/builder/RunConsolePage';
-import PlaygroundPage from '@/modules/playground/PlaygroundPage';
 import ServerPromptsPage from '@/modules/assets/ServerPromptsPage';
 import ServerToolsPage from '@/modules/assets/ServerToolsPage';
 import ServerMcpPage from '@/modules/assets/ServerMcpPage';
@@ -64,8 +63,14 @@ export default function App() {
               point rather than left pointing at a wizard that goes nowhere. */}
           <Route path="/onboarding" element={<Navigate to="/agents" replace />} />
           <Route path="/onboarding/:draftId/phase/:n" element={<Navigate to="/agents" replace />} />
-          <Route path="/playground" element={<PlaygroundPage />} />
-          <Route path="/playground/:agentId" element={<PlaygroundPage />} />
+          {/* Playground has the same defect as the onboarding wizard: it lists
+              agents from the in-browser kernel, so server-created agents never
+              appear in it. It also runs them through the legacy direct-to-model
+              path with a browser-held key — no lifecycle check, no policy, no
+              run_steps, no cost record. The governed equivalent is the run
+              console at /agents/:id/console, so old links redirect there. */}
+          <Route path="/playground" element={<Navigate to="/agents" replace />} />
+          <Route path="/playground/:agentId" element={<Navigate to="/agents" replace />} />
 
           {/* ASSETS — server-backed (Increment C) */}
           <Route path="/prompts" element={<ServerPromptsPage />} />

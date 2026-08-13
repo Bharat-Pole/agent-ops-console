@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/shell/PageHeader';
 import { Badge, Button, Card, CardHeader, EmptyState, Modal } from '@/components/primitives';
 import { apiErrorMessage, mcpApi, type ServerConnector } from '@/api/client';
 import { fmtDate } from '@/utils/format';
+import { useCreateParam } from '@/hooks/useCreateParam';
 
 const INPUT = 'h-9 w-full rounded-control border border-border bg-canvas px-2.5 text-[13px] text-text-hi outline-none focus:border-border-strong';
 
@@ -13,6 +14,7 @@ export default function ServerMcpPage() {
   const [connectors, setConnectors] = useState<ServerConnector[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  useCreateParam(setCreateOpen);   // left-nav "+ New" deep link
   const [report, setReport] = useState<{ name: string; text: string } | null>(null);
 
   const load = useCallback(() => {

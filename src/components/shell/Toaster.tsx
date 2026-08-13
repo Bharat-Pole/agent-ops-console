@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { CheckCircle2, Info, AlertTriangle, XCircle, X } from 'lucide-react';
-import { useWorkspace } from '@/kernel/store';
-import type { ToastKind } from '@/kernel/store';
+import { useUi } from '@/ui/store';
+import type { ToastKind } from '@/ui/store';
 import { cn } from '@/utils/cn';
 
 const ICON: Record<ToastKind, React.ReactNode> = {
@@ -12,7 +12,7 @@ const ICON: Record<ToastKind, React.ReactNode> = {
 };
 
 function ToastRow({ id, kind, message }: { id: string; kind: ToastKind; message: string }) {
-  const dismiss = useWorkspace((s) => s.dismissToast);
+  const dismiss = useUi((s) => s.dismissToast);
   useEffect(() => {
     const t = window.setTimeout(() => dismiss(id), 4200);
     return () => window.clearTimeout(t);
@@ -33,7 +33,7 @@ function ToastRow({ id, kind, message }: { id: string; kind: ToastKind; message:
 }
 
 export function Toaster() {
-  const toasts = useWorkspace((s) => s.ui.toasts);
+  const toasts = useUi((s) => s.toasts);
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-[200] flex w-80 flex-col gap-2">
       {toasts.map((t) => (

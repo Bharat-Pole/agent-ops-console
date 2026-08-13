@@ -140,23 +140,37 @@ def run_rag(state: EngineState, config: dict, ctx: ExecCtx) -> tuple[dict, dict]
     query = state.get("user_input", "")
     source_ids = [uuid.UUID(s) for s in pipeline.source_ids]
 
+    # Both searchers contribute a WIDER pool than top_k so that fusion and the
+    # diversity pass have candidates to choose between; the pool is narrowed to
+    # top_k only at the end.
+    pool = max(pipeline.top_k, pipeline.top_k * vectors.CANDIDATE_MULTIPLIER)
+
     vector_hits: list[vectors.ChunkHit] = []
-    mode = "keyword_only"
+    embeddings_available = False
     if ctx.adapter is not None:
         try:
             qvec = ctx.adapter.embed([query])[0]
             vector_hits = vectors.vector_search(ctx.db, qvec, source_ids,
-                                                pipeline.top_k, pipeline.score_threshold)
-            mode = "hybrid"
+                                                pool, pipeline.score_threshold)
+            embeddings_available = True
         except (ModelUnavailable, ModelCallError):
-            mode = "keyword_only"
-    keyword_hits = vectors.keyword_search(ctx.db, query, source_ids, pipeline.top_k)
+            embeddings_available = False
+    keyword_hits = vectors.keyword_search(ctx.db, query, source_ids, pool)
 
-    seen: dict[uuid.UUID, vectors.ChunkHit] = {}
-    for hit in vector_hits + keyword_hits:
-        if hit.chunk.id not in seen:
-            seen[hit.chunk.id] = hit
-    hits = list(seen.values())[: pipeline.top_k]
+    # mode reports what actually contributed. The previous label claimed
+    # "hybrid" whenever an embedding call succeeded, even though the merge
+    # discarded every keyword hit unless vector search underfilled.
+    if vector_hits and keyword_hits:
+        mode = "hybrid"
+    elif vector_hits:
+        mode = "vector_only"
+    elif keyword_hits:
+        mode = "keyword_only" if embeddings_available else "keyword_fallback"
+    else:
+        mode = "no_matches"
+
+    hits = vectors.diversify(vectors.fuse({"vector": vector_hits, "keyword": keyword_hits}),
+                             pipeline.top_k)
 
     from ..models import KnowledgeSource
     names = {s.id: s.name for s in ctx.db.scalars(
@@ -167,7 +181,12 @@ def run_rag(state: EngineState, config: dict, ctx: ExecCtx) -> tuple[dict, dict]
     retrieved = [{"n": e.n, "source": e.name, "location": e.location, "text": e.text}
                  for e in source_map]
     span = {"mode": mode, "chunks": len(retrieved), "pipeline": pipeline.name,
-            "score_threshold": pipeline.score_threshold}
+            "score_threshold": pipeline.score_threshold,
+            "candidates": {"vector": len(vector_hits), "keyword": len(keyword_hits)},
+            # how many of the pipeline's sources are actually represented — the
+            # number to look at when an answer misses a document
+            "sources_represented": len({h.chunk.source_id for h in hits}),
+            "sources_configured": len(source_ids)}
     return {"retrieved": retrieved, "context_block": context_block}, span
 
 
@@ -385,24 +404,26 @@ def _call_mcp_tool(db: Session, tool: ToolRecord, args: dict) -> dict:
 
     async def _run() -> dict:
         from mcp import ClientSession
-        if conn.transport == "sse":
-            from mcp.client.sse import sse_client as connect
-        else:
-            from mcp.client.streamable_http import streamablehttp_client as connect
-        async with connect(conn.endpoint, headers=headers or None) as streams:
-            async with ClientSession(streams[0], streams[1]) as session:
+
+        # shared with discovery so both speak the same SDK dialect (see
+        # assets.mcp.open_transport — the v1/v2 client rename lives there)
+        from ..assets.mcp import open_transport, sdk_attr
+        async with open_transport(conn.endpoint, conn.transport, headers) as (read, write):
+            async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool(tool_name, arguments=args)
                 texts = [c.text for c in result.content if getattr(c, "text", None)]
                 return {"tool": tool.slug, "mcp_tool": tool_name,
-                        "is_error": bool(result.isError), "content": "\n".join(texts)[:2000]}
+                        "is_error": bool(sdk_attr(result, "is_error", "isError", default=False)),
+                        "content": "\n".join(texts)[:2000]}
 
     try:
         return asyncio.run(asyncio.wait_for(_run(), timeout=30))
     except NodeExecutionError:
         raise
     except Exception as exc:
-        raise NodeExecutionError(f"MCP call failed: {exc}") from exc
+        from ..assets.mcp import explain_exc
+        raise NodeExecutionError(f"MCP call failed: {explain_exc(exc)}") from exc
 
 
 def run_guardrail(state: EngineState, config: dict, ctx: ExecCtx) -> tuple[dict, dict]:

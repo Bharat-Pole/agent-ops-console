@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, LayoutGrid, FileText, Wrench, Database } from 'lucide-react';
-import { useWorkspace } from '@/kernel/store';
-import { agentId, agentName } from '@/types';
+import { agentsApi, knowledgeApi, promptsApi, toolsApi } from '@/api/client';
 import { cn } from '@/utils/cn';
 
 interface Hit {
@@ -13,53 +12,57 @@ interface Hit {
   to: string;
 }
 
-// Section 3.1 — global search (Cmd+K) searching agents/prompts/tools/sources by name.
+// Global search (Cmd+K). Searches the SERVER registries — it used to search the
+// in-browser kernel, so results were whatever demo data the client happened to
+// hold rather than the assets that actually exist.
 export function CommandK({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [q, setQ] = useState('');
   const [idx, setIdx] = useState(0);
+  const [catalog, setCatalog] = useState<Hit[]>([]);
   const navigate = useNavigate();
-  const { agents, prompts, tools, sources } = useWorkspace((s) => ({
-    agents: s.agents,
-    prompts: s.prompts,
-    tools: s.tools,
-    sources: s.sources,
-  }));
+
+  // Loaded when the palette opens, so it reflects the registries as they are
+  // now rather than a snapshot taken at page load.
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    Promise.all([
+      agentsApi.list().catch(() => []),
+      promptsApi.list().catch(() => []),
+      toolsApi.list().catch(() => []),
+      knowledgeApi.list().catch(() => []),
+    ]).then(([agents, prompts, tools, sources]) => {
+      if (!current) return;
+      setCatalog([
+        ...agents.map((a) => ({
+          kind: 'agent' as const, id: a.slug, name: a.name,
+          sub: `Agent · ${a.lifecycle_status.replace(/_/g, ' ')}`, to: `/agents/${a.id}`,
+        })),
+        ...prompts.map((p) => ({
+          kind: 'prompt' as const, id: p.slug, name: p.name,
+          sub: p.approved_version ? `Prompt · v${p.approved_version} approved` : 'Prompt · no approved version',
+          to: '/prompts',
+        })),
+        ...tools.map((t) => ({
+          kind: 'tool' as const, id: t.slug, name: t.name,
+          sub: `Tool · ${t.status}`, to: '/tools',
+        })),
+        ...sources.map((s) => ({
+          kind: 'source' as const, id: s.id, name: s.name,
+          sub: 'Knowledge source', to: '/knowledge',
+        })),
+      ]);
+    });
+    return () => { current = false; };
+  }, [open]);
 
   const hits = useMemo<Hit[]>(() => {
-    const all: Hit[] = [
-      ...agents.map((a) => ({
-        kind: 'agent' as const,
-        id: agentId(a),
-        name: agentName(a),
-        sub: `Agent · ${a.capability_tier}`,
-        to: `/agents/${agentId(a)}`,
-      })),
-      ...prompts.map((p) => ({
-        kind: 'prompt' as const,
-        id: p.id,
-        name: p.name,
-        sub: `Prompt · ${p.kind}`,
-        to: `/prompts/${p.id}`,
-      })),
-      ...tools.map((t) => ({
-        kind: 'tool' as const,
-        id: t.id,
-        name: t.name,
-        sub: `Tool · ${t.category}`,
-        to: `/tools`,
-      })),
-      ...sources.map((s) => ({
-        kind: 'source' as const,
-        id: s.id,
-        name: s.name,
-        sub: `Knowledge source`,
-        to: `/knowledge`,
-      })),
-    ];
-    if (!q.trim()) return all.slice(0, 8);
+    if (!q.trim()) return catalog.slice(0, 8);
     const needle = q.toLowerCase();
-    return all.filter((h) => h.name.toLowerCase().includes(needle) || h.id.toLowerCase().includes(needle)).slice(0, 12);
-  }, [agents, prompts, tools, sources, q]);
+    return catalog
+      .filter((h) => h.name.toLowerCase().includes(needle) || h.id.toLowerCase().includes(needle))
+      .slice(0, 12);
+  }, [catalog, q]);
 
   useEffect(() => {
     if (open) {

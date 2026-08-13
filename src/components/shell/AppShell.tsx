@@ -5,11 +5,11 @@ import { LeftNav } from './LeftNav';
 import { Toaster } from './Toaster';
 import { CommandK } from './CommandK';
 import { HelpModal } from './HelpModal';
-import { useWorkspace } from '@/kernel/store';
+import { useUi } from '@/ui/store';
 
 export function AppShell() {
-  const searchOpen = useWorkspace((s) => s.ui.searchOpen);
-  const setSearchOpen = useWorkspace((s) => s.setSearchOpen);
+  const searchOpen = useUi((s) => s.searchOpen);
+  const setSearchOpen = useUi((s) => s.setSearchOpen);
   const [helpOpen, setHelpOpen] = useState(false);
 
   // Cmd/Ctrl+K opens global search from anywhere (Section 3.1 / M9 keyboard nav).

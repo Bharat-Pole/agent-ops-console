@@ -4,9 +4,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Rocket, RotateCcw } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, Modal } from '@/components/primitives';
+import { Link } from 'react-router-dom';
 import {
   apiErrorMessage, deploymentsApi,
-  type AccessGroupRow, type ServerDeployment,
+  type AccessGroupRow, type AdmissionPreview, type ServerDeployment,
 } from '@/api/client';
 import { fmtDate, titleCase } from '@/utils/format';
 
@@ -23,11 +24,26 @@ export default function DeploymentCard({ agentId }: { agentId: string }) {
   const [busy, setBusy] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
 
+  const [admission, setAdmission] = useState<AdmissionPreview | null>(null);
+
   const load = useCallback(() => {
     deploymentsApi.list(agentId).then(setDeployments).catch(() => setDeployments([]));
     deploymentsApi.groups().then(setGroups).catch(() => setGroups([]));
   }, [agentId]);
   useEffect(load, [load]);
+
+  // Show what deploying WOULD decide, for the channel actually selected. The
+  // admission rule spans evaluation, lifecycle, evidence and cost labelling,
+  // and until now the only way to discover any of it was to press Deploy and
+  // read a 403.
+  useEffect(() => {
+    let current = true;
+    setAdmission(null);
+    deploymentsApi.admission(agentId, channel)
+      .then((a) => { if (current) setAdmission(a); })
+      .catch(() => { if (current) setAdmission(null); });
+    return () => { current = false; };
+  }, [agentId, channel, deployments.length]);
 
   const deploy = async () => {
     setBusy(true); setError(null);
@@ -87,6 +103,38 @@ export default function DeploymentCard({ agentId }: { agentId: string }) {
             Deploy
           </Button>
         </div>
+
+        {admission && !admission.allowed && (
+          <div className="rounded-control border border-border bg-canvas px-2 py-1.5">
+            <div className="text-[11px] font-medium text-amber-400">
+              Not admissible to {admission.channel} yet
+            </div>
+            <ul className="mt-1 flex flex-col gap-0.5">
+              {admission.reasons
+                .filter((r) => !r.startsWith('governance-config'))
+                .map((r) => (
+                  <li key={r} className="text-[11px] text-text-low">— {r}</li>
+                ))}
+            </ul>
+            <div className="mt-1.5 text-[11px] text-text-low">
+              {admission.evaluation
+                ? <>Latest evaluation on this workflow version{' '}
+                    <Badge tone={admission.evaluation.passed ? 'ok' : 'warn'}>
+                      {admission.evaluation.passed ? 'passed' : 'failed'}
+                    </Badge>{' '}
+                    <span className="text-text-low">({fmtDate(admission.evaluation.started_at)})</span></>
+                : <>No evaluation has been run on this workflow version.</>}
+              {' '}<Link to="/evaluations" className="text-accent hover:underline">Evaluation Center →</Link>
+            </div>
+          </div>
+        )}
+        {admission?.allowed && (
+          <div className="text-[11px] text-text-low">
+            Admissible to {admission.channel}.
+            {admission.evaluation?.passed && ' Evaluation passed on this workflow version.'}
+          </div>
+        )}
+
         {error && <div className="text-[12px] text-red-400">{error}</div>}
       </div>
       {keysOpen && <AccessKeysModal groups={groups} onClose={() => { setKeysOpen(false); load(); }} />}

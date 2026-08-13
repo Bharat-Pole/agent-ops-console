@@ -14,7 +14,8 @@ import { PageHeader } from '@/components/shell/PageHeader';
 import { Badge, Button, Card, CardHeader, ComboBox, Modal, type ComboOption } from '@/components/primitives';
 import {
   apiErrorMessage, promptsApi, ragApi, toolsApi, workflowsApi,
-  type FlowNode, type ServerWorkflow, type ServerWorkflowVersion, type WorkflowGraph,
+  type EdgeCondition, type FlowNode, type ServerWorkflow, type ServerWorkflowVersion,
+  type WorkflowGraph,
 } from '@/api/client';
 import { titleCase } from '@/utils/format';
 
@@ -53,6 +54,40 @@ function nodeStyle(type: string, state: { selected?: boolean; invalid?: boolean 
     textAlign: 'left' as const,
     width: 190,
     whiteSpace: 'pre-wrap' as const,
+  };
+}
+
+// Edge conditions — the vocabulary mirrors backend/app/engine/conditions.py.
+// Anything not in these lists is refused server-side, so the palette stays
+// closed here too rather than letting people author edges that cannot validate.
+const CONDITION_FIELDS = [
+  'user_input', 'prompt_parts', 'retrieved', 'context_block',
+  'tool_results', 'llm_output', 'final_output',
+  'citation_check', 'citation_check.passed',
+  'hitl_decision', 'hitl_decision.approved',
+];
+const VALUE_OPS = ['eq', 'ne', 'contains', 'not_contains', 'gt', 'gte', 'lt', 'lte'];
+const UNARY_OPS = ['is_empty', 'is_not_empty'];
+
+function conditionLabel(when?: EdgeCondition): string {
+  if (!when) return '';
+  return UNARY_OPS.includes(when.op)
+    ? `${when.field} ${when.op}`
+    : `${when.field} ${when.op} ${JSON.stringify(when.value)}`;
+}
+
+/** Style + label an edge from its condition, so branches are readable on the canvas. */
+function edgeView(edge: Edge): Edge {
+  const when = (edge.data as { condition?: EdgeCondition } | undefined)?.condition;
+  return {
+    ...edge,
+    label: when ? conditionLabel(when) : undefined,
+    labelStyle: { fill: 'var(--text-mid)', fontSize: 10 },
+    labelBgStyle: { fill: 'var(--surface)' },
+    labelBgPadding: [4, 2] as [number, number],
+    style: when
+      ? { stroke: 'var(--accent)', strokeWidth: 1.5 }
+      : { stroke: 'var(--border-strong)', strokeDasharray: '4 3' },
   };
 }
 
@@ -95,7 +130,14 @@ function toGraph(nodes: Node[], edges: Edge[]): WorkflowGraph {
       label: (n.data as { nlabel?: string }).nlabel ?? '',
       config: (n.data as { config?: Record<string, unknown> }).config ?? {},
     })) as FlowNode[],
-    edges: edges.map((e) => ({ from: e.source, to: e.target })),
+    // `condition` must survive the round trip, or saving a branching workflow
+    // silently flattens it back into an ambiguous multi-edge graph.
+    edges: edges.map((e) => {
+      const condition = (e.data as { condition?: EdgeCondition } | undefined)?.condition;
+      return condition
+        ? { from: e.source, to: e.target, condition }
+        : { from: e.source, to: e.target };
+    }),
   };
 }
 
@@ -107,6 +149,7 @@ export default function WorkflowBuilderPage() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -146,15 +189,23 @@ export default function WorkflowBuilderPage() {
   const selectVersion = (v: ServerWorkflowVersion) => {
     setSelected(v);
     setNodes(layout(v.graph ?? { nodes: [], edges: [] }));
-    setEdges((v.graph?.edges ?? []).map((e, i) => ({ id: `e${i}`, source: e.from, target: e.to })));
+    setEdges((v.graph?.edges ?? []).map((e, i) => edgeView({
+      id: `e${i}`, source: e.from, target: e.to, data: { condition: e.condition },
+    })));
     setSelectedNodeId(null);
+    setSelectedEdgeId(null);
     setInfo(null);
     setError(null);
   };
 
   const onNodesChange = useCallback((changes: NodeChange[]) => setNodes((ns) => applyNodeChanges(changes, ns)), []);
   const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges((es) => applyEdgeChanges(changes, es)), []);
-  const onConnect = useCallback((c: Connection) => setEdges((es) => addEdge(c, es)), []);
+  const onConnect = useCallback(
+    (c: Connection) => setEdges((es) => addEdge(c, es).map((e) => edgeView(e))), []);
+
+  const setEdgeCondition = (edgeId: string, when: EdgeCondition | undefined) =>
+    setEdges((es) => es.map((e) =>
+      e.id === edgeId ? edgeView({ ...e, data: { ...(e.data ?? {}), condition: when } }) : e));
 
   const act = async (fn: () => Promise<ServerWorkflowVersion>, label: string) => {
     setError(null); setInfo(null);
@@ -196,6 +247,7 @@ export default function WorkflowBuilderPage() {
       : n));
   };
 
+  const selectedEdge = edges.find((e) => e.id === selectedEdgeId) ?? null;
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
   const selectedType = selectedNode ? (selectedNode.data as { ntype: string }).ntype : null;
   const selectedConfig = (selectedNode?.data as { config?: Record<string, unknown> })?.config ?? {};
@@ -280,8 +332,9 @@ export default function WorkflowBuilderPage() {
               <ReactFlow
                 nodes={styledNodes} edges={edges}
                 onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
-                onNodeClick={(_, n) => setSelectedNodeId(n.id)}
-                onPaneClick={() => setSelectedNodeId(null)}
+                onNodeClick={(_, n) => { setSelectedNodeId(n.id); setSelectedEdgeId(null); }}
+                onEdgeClick={(_, e) => { setSelectedEdgeId(e.id); setSelectedNodeId(null); }}
+                onPaneClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); }}
                 nodesDraggable={editable} nodesConnectable={editable}
                 fitView proOptions={{ hideAttribution: true }}
               >
@@ -291,6 +344,14 @@ export default function WorkflowBuilderPage() {
             </div>
 
             <div className="flex flex-col gap-3">
+              {selectedEdge && (
+                <EdgeInspector
+                  edge={selectedEdge}
+                  editable={editable}
+                  siblingCount={edges.filter((e) => e.source === selectedEdge.source).length}
+                  onChange={(when) => setEdgeCondition(selectedEdge.id, when)}
+                />
+              )}
               {selectedNode ? (
                 <Card>
                   <CardHeader title={`Node: ${selectedNodeId}`} subtitle={selectedType ?? ''} />
@@ -403,6 +464,95 @@ export default function WorkflowBuilderPage() {
         <CreateWorkflowForm agentId={id} onDone={(v) => { setCreateOpen(false); load(v); }} />
       </Modal>
     </div>
+  );
+}
+
+/**
+ * Edge condition editor.
+ *
+ * An edge with no condition is the DEFAULT branch — the `else`. The server
+ * requires exactly one of those per branching node, so this says which one an
+ * edge is rather than leaving people to infer it from a blank form.
+ */
+function EdgeInspector({
+  edge, editable, siblingCount, onChange,
+}: {
+  edge: Edge;
+  editable: boolean;
+  siblingCount: number;
+  onChange: (when: EdgeCondition | undefined) => void;
+}) {
+  const when = (edge.data as { condition?: EdgeCondition } | undefined)?.condition;
+  const isUnary = when ? UNARY_OPS.includes(when.op) : false;
+  const branching = siblingCount > 1;
+
+  const update = (patch: Partial<EdgeCondition>) => {
+    const next = { field: 'llm_output', op: 'contains', value: '', ...when, ...patch };
+    if (UNARY_OPS.includes(next.op)) delete next.value;
+    else if (next.value === undefined) next.value = '';
+    onChange(next as EdgeCondition);
+  };
+
+  return (
+    <Card>
+      <CardHeader
+        title={`Edge: ${edge.source} → ${edge.target}`}
+        subtitle={when ? 'Conditional branch' : branching ? 'Default branch (else)' : 'Unconditional'}
+      />
+      <div className="flex flex-col gap-2">
+        {!when && (
+          <div className="text-[11px] text-text-low">
+            {branching
+              ? 'No condition: this is the default taken when no sibling condition matches. A branching node needs exactly one.'
+              : 'No condition: execution always follows this edge.'}
+          </div>
+        )}
+        {when && (
+          <>
+            <label className="block"><span className="mb-1 block text-[11px] text-text-mid">Field</span>
+              <select
+                className="h-8 w-full rounded-control border border-border bg-canvas px-1.5 text-[12px] text-text-hi outline-none"
+                disabled={!editable} value={when.field}
+                onChange={(e) => update({ field: e.target.value })}>
+                {CONDITION_FIELDS.map((f) => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </label>
+            <label className="block"><span className="mb-1 block text-[11px] text-text-mid">Operator</span>
+              <select
+                className="h-8 w-full rounded-control border border-border bg-canvas px-1.5 text-[12px] text-text-hi outline-none"
+                disabled={!editable} value={when.op}
+                onChange={(e) => update({ op: e.target.value })}>
+                <optgroup label="compares a value">
+                  {VALUE_OPS.map((o) => <option key={o} value={o}>{o}</option>)}
+                </optgroup>
+                <optgroup label="no value needed">
+                  {UNARY_OPS.map((o) => <option key={o} value={o}>{o}</option>)}
+                </optgroup>
+              </select>
+            </label>
+            {!isUnary && (
+              <label className="block"><span className="mb-1 block text-[11px] text-text-mid">Value</span>
+                <input
+                  className="h-8 w-full rounded-control border border-border bg-canvas px-1.5 text-[12px] text-text-hi outline-none"
+                  disabled={!editable}
+                  value={typeof when.value === 'string' ? when.value : JSON.stringify(when.value ?? '')}
+                  onChange={(e) => update({ value: e.target.value })} />
+                <span className="mt-1 block text-[10px] text-text-low">
+                  Text comparisons ignore case. Use is_empty / is_not_empty for “nothing was retrieved”.
+                </span>
+              </label>
+            )}
+          </>
+        )}
+        {editable && (
+          <button
+            className="self-start text-[11px] text-accent hover:underline"
+            onClick={() => (when ? onChange(undefined) : update({}))}>
+            {when ? 'Make this the default branch' : 'Add a condition'}
+          </button>
+        )}
+      </div>
+    </Card>
   );
 }
 

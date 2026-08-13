@@ -2,11 +2,10 @@
 // panel, and the REAL audit trail. Policy lives server-side — this page offers
 // the actions and renders the server's allow/deny verdicts verbatim.
 //
-// Strangler note: ids that the backend doesn't know (404) fall back to the
-// legacy kernel detail page, so pre-existing demo links keep working until
-// every module is rewired.
+// Ids the backend does not know render an honest "not found" — the legacy
+// kernel fallback that used to catch them is gone.
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowRight, FileText, Play, Sparkles, Workflow as WorkflowIcon } from 'lucide-react';
 import { PageHeader } from '@/components/shell/PageHeader';
 import { Badge, Button, Card, CardHeader, ComboBox, EmptyState, JsonViewer, type ComboOption } from '@/components/primitives';
@@ -16,12 +15,12 @@ import {
   type AssetBindingRow, type AuditRow, type ServerAgent, type ServerLifecycleStatus,
 } from '@/api/client';
 import { fmtDate, titleCase } from '@/utils/format';
-import LegacyAgentDetailPage from './AgentDetailPage';
 import DeploymentCard from './DeploymentCard';
 import { SERVER_LIFECYCLE_TONE } from './ServerRegistryPage';
 
 export default function ServerAgentDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const [agent, setAgent] = useState<ServerAgent | null>(null);
   const [audit, setAudit] = useState<AuditRow[] | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -39,7 +38,18 @@ export default function ServerAgentDetailPage() {
   }, [id]);
   useEffect(load, [load]);
 
-  if (notFound) return <LegacyAgentDetailPage />; // kernel-era id — legacy view
+  // An id the server does not know is a dead link. It used to fall through to
+  // the kernel-backed legacy view, which rendered a plausible-looking agent
+  // that did not exist — the one path where a 404 could read as a real record.
+  if (notFound) {
+    return (
+      <EmptyState
+        title="Agent not found"
+        message="No agent with this id exists. It may have been a link from an older version of the console."
+        action={<Button variant="primary" onClick={() => navigate('/agents')}>Back to registry</Button>}
+      />
+    );
+  }
   if (loadError) {
     return (
       <EmptyState

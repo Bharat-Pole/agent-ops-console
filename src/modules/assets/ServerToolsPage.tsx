@@ -7,6 +7,7 @@ import { Badge, Button, DataTable, EmptyState, Modal, type Column } from '@/comp
 import { apiErrorMessage, mcpApi, toolsApi, type ServerConnector, type ServerTool } from '@/api/client';
 import { flattenSchema, isRenderableSchema } from '@/modules/assets/schemaView';
 import { fmtDate, titleCase } from '@/utils/format';
+import { useCreateParam } from '@/hooks/useCreateParam';
 
 const STATUS_TONE: Record<string, 'ok' | 'accent' | 'warn' | 'neutral' | 'muted' | 'err'> = {
   draft: 'muted', pending_approval: 'warn', approved: 'ok', rejected: 'err', deprecated: 'muted',
@@ -18,6 +19,7 @@ export default function ServerToolsPage() {
   const [tools, setTools] = useState<ServerTool[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  useCreateParam(setCreateOpen);   // left-nav "+ New" deep link
   const [selected, setSelected] = useState<ServerTool | null>(null);
 
   const load = useCallback(() => {

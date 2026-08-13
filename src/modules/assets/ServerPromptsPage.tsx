@@ -9,8 +9,9 @@ import {
   type PromptComparison, type PromptUsage, type PromptUsageRef,
   type ServerPromptPack, type ServerPromptVersion,
 } from '@/api/client';
-import { diffLines, diffStats } from '@/modules/prompts/diff';
+import { diffLines, diffStats } from '@/modules/assets/diff';
 import { fmtDate, titleCase } from '@/utils/format';
+import { useCreateParam } from '@/hooks/useCreateParam';
 
 const STATUS_TONE: Record<string, 'ok' | 'warn' | 'muted' | 'err' | 'neutral'> = {
   draft: 'muted', pending_approval: 'warn', approved: 'ok', rejected: 'err', deprecated: 'muted',
@@ -22,6 +23,7 @@ export default function ServerPromptsPage() {
   const [packs, setPacks] = useState<ServerPromptPack[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  useCreateParam(setCreateOpen);   // left-nav "+ New" deep link
   const [openPack, setOpenPack] = useState<ServerPromptPack | null>(null);
 
   const load = useCallback(() => {

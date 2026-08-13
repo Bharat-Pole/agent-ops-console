@@ -2,6 +2,7 @@
 // real engine runs; skipped judge checks and excluded unreviewed cases are
 // shown, never hidden.
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Play, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/shell/PageHeader';
 import { Badge, Button, Card, CardHeader, EmptyState, Modal } from '@/components/primitives';
@@ -58,6 +59,17 @@ export default function ServerEvaluationsPage() {
           value={agentId} onChange={(e) => setAgentId(e.target.value)}>
           {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
+        {/* The other half of the admission dependency: a passing run here is
+            what admits a production deployment, but deploying happens on the
+            agent's own page. Say so, and link there. */}
+        {agentId && (
+          <span className="text-[11px] text-text-low">
+            A passing run on the active workflow version admits production deployment —{' '}
+            <Link to={`/agents/${agentId}`} className="text-accent hover:underline">
+              deploy on the agent page →
+            </Link>
+          </span>
+        )}
       </div>
       {error && <div className="mb-3 text-[13px] text-red-400">{error}</div>}
 

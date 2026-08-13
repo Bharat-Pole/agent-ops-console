@@ -8,9 +8,19 @@ Layers:
 3. asset refs — rag pipelines must exist, prompts must have APPROVED versions,
    tools must be approved AND non-write (execution refuses write tools anyway;
    validation surfaces it before anything is approved)
-4. cycles — back-edges are dropped with a recorded warning: v1 semantics are
-   one execution per node in topological order (full LLM⇄tool loops arrive
-   with function-calling in a later increment)
+4. branching — edges ROUTE execution: `condition` objects are checked against
+   the closed vocabulary in engine/conditions.py, every branch point needs a
+   default edge, and guardrail-before-output must hold on EVERY path, not
+   merely somewhere in a linear order
+5. cycles — rejected. They were previously dropped with a warning, which was
+   survivable only because edges did not route; now they would loop without
+   bound. Governed loops (iteration cap + per-iteration policy) are the next
+   increment.
+
+Note the two distinct edge fields: `when` is the recommender's human-readable
+annotation of intent, `condition` is the executable predicate. An annotated
+edge with no condition warns rather than routes — it must not look like it
+branches when it does not.
 """
 from __future__ import annotations
 
@@ -25,6 +35,7 @@ from ..models import (
 )
 from ..recommender import deterministic
 from ..recommender.engine import ensure_guardrail
+from . import conditions
 
 RULES_VERSION = "workflow-validation-v1-increment-d"
 
@@ -94,6 +105,108 @@ def topological_order(graph: dict) -> tuple[list[str], list[tuple[str, str]]]:
     return order, dropped
 
 
+def outgoing(graph: dict) -> dict[str, list[dict]]:
+    """node id -> its outgoing edges, in authored order (which decides
+    condition precedence at runtime: first match wins)."""
+    node_ids = {n["id"] for n in graph.get("nodes", [])}
+    out: dict[str, list[dict]] = {n: [] for n in node_ids}
+    for edge in graph.get("edges", []):
+        if edge.get("from") in node_ids and edge.get("to") in node_ids:
+            out[edge["from"]].append(edge)
+    return out
+
+
+def default_edge(edges: list[dict]) -> dict | None:
+    """The unconditional edge among a node's outgoing edges, if any.
+    This is the `else` branch — where a run goes when no condition matches."""
+    for edge in edges:
+        if not edge.get("condition"):
+            return edge
+    return None
+
+
+def _reachable_avoiding(graph: dict, entry: str, avoid_types: set[str]) -> set[str]:
+    """Nodes reachable from entry WITHOUT passing through the given node types.
+
+    Used to prove guardrail coverage: if an output node is still reachable once
+    every guardrail is removed, some path reaches output ungoverned.
+    """
+    types = {n["id"]: n.get("type") for n in graph.get("nodes", [])}
+    out = outgoing(graph)
+    seen: set[str] = set()
+    stack = [entry]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        if types.get(current) in avoid_types:
+            continue          # path stops here — the guardrail governs it
+        for edge in out.get(current, []):
+            if edge["to"] not in seen:
+                stack.append(edge["to"])
+    return seen
+
+
+def _check_branching(graph: dict, risk_tier: str, outcome: ValidationOutcome) -> None:
+    """Rules that only exist once edges actually route execution."""
+    node_ids = {n["id"] for n in graph.get("nodes", [])}
+    types = {n["id"]: n.get("type") for n in graph.get("nodes", [])}
+    out = outgoing(graph)
+
+    for edge in graph.get("edges", []):
+        if edge.get("from") not in node_ids or edge.get("to") not in node_ids:
+            continue
+        # `when` is the RECOMMENDER's plain-language note about intent
+        # ("route:refunds", "tool_calls"). It documents a branch; it does not
+        # execute one. Saying so is the difference between a graph that looks
+        # like it routes and one that does.
+        annotation = edge.get("when")
+        if isinstance(annotation, str) and annotation and not edge.get("condition"):
+            outcome.warnings.append(
+                f'edge {edge["from"]} → {edge["to"]} is annotated "{annotation}" by the '
+                "recommendation but has no executable `condition` — it will be followed "
+                "unconditionally until one is set")
+
+        condition = edge.get("condition")
+        if condition is None:
+            continue
+        for error in conditions.condition_errors(condition):
+            outcome.violations.append(
+                f'edge {edge["from"]} → {edge["to"]}: {error}')
+
+    # A branch point needs an else. Without one, a run whose conditions all
+    # miss would stop mid-workflow and produce no output — a silent dead end,
+    # which is exactly the failure mode this platform refuses elsewhere.
+    for node_id, edges in out.items():
+        if len(edges) <= 1:
+            continue
+        conditional = [e for e in edges if e.get("condition")]
+        if not conditional:
+            outcome.violations.append(
+                f'node "{node_id}" has {len(edges)} outgoing edges but no conditions — '
+                "execution cannot choose between them; add a `condition` to all but one")
+        elif default_edge(edges) is None:
+            outcome.violations.append(
+                f'node "{node_id}" branches on conditions with no default edge — add one '
+                "unconditional edge so a run cannot dead-end when no condition matches")
+
+    # Guardrail-before-output must hold on EVERY path, not merely somewhere in
+    # a linear order. With branching, "a guardrail exists" stops being proof.
+    if str(risk_tier).lower() in ("high", "restricted"):
+        entries = [n for n in node_ids if not any(
+            e["to"] == n for e in graph.get("edges", []) if e.get("from") in node_ids)]
+        outputs = {n for n in node_ids if types.get(n) == "output_format"}
+        guardrails = {n for n in node_ids if types.get(n) == "guardrail"}
+        if outputs and guardrails:
+            for entry in entries:
+                ungoverned = _reachable_avoiding(graph, entry, {"guardrail"}) & outputs
+                for node_id in sorted(ungoverned):
+                    outcome.violations.append(
+                        f'{risk_tier} risk: output node "{node_id}" is reachable from "{entry}" '
+                        "without passing a guardrail — every path to output must be governed")
+
+
 def validate_workflow(db: Session, graph: dict, risk_tier: str) -> ValidationOutcome:
     graph, adjustments = ensure_guardrail(graph, risk_tier)
     outcome = ValidationOutcome(graph=graph, adjustments=list(adjustments))
@@ -156,10 +269,20 @@ def validate_workflow(db: Session, graph: dict, risk_tier: str) -> ValidationOut
                             f'{ntype} node "{node_id}": tool {ref!r} has implementation "none" — it will '
                             "return an honest not-connected stub, not real data")
 
+    _check_branching(graph, risk_tier, outcome)
+
+    # Cycles are now a VIOLATION, not a warning. Previously edges only decided
+    # ordering, so a back-edge could be dropped and the graph still ran once
+    # through — misleading, but bounded. Now that edges route execution, a
+    # cycle would loop until something else stopped it. Rejecting at design
+    # time is the honest failure: an agentic loop needs an iteration cap and
+    # per-iteration policy checks, which is the next increment, not a side
+    # effect of drawing an arrow backwards.
     _, dropped = topological_order(graph)
     for a, b in dropped:
-        outcome.warnings.append(
-            f"cycle: back-edge {a} → {b} is dropped at execution — nodes run once in topological "
-            "order (v1 semantics; LLM⇄tool loops arrive with function-calling)")
+        outcome.violations.append(
+            f"cycle: back-edge {a} → {b} would loop without bound — the engine routes edges now, "
+            "so cycles are rejected until governed loops land (iteration cap + per-iteration "
+            "policy checks)")
 
     return outcome
